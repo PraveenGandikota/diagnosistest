@@ -110,7 +110,7 @@ const Quiz = () => {
             <Play className="h-4 w-4" /> Start 10-minute quiz
           </button>
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            12 MCQs · then 2 code challenges · then AI diagnosis
+            Up to 12 MCQs · one from every Knowledge Concept · then your AI diagnosis
           </p>
         </div>
       </div>
@@ -195,7 +195,7 @@ const Quiz = () => {
                 onClick={handleNext}
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
               >
-                {session.currentIdx + 1 >= session.questions.length ? "Continue to code challenge" : "Next"}
+                {session.currentIdx + 1 >= session.questions.length ? "See your diagnosis" : "Next"}
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>
