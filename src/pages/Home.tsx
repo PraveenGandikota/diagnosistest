@@ -63,9 +63,9 @@ const Home = () => {
 
         <h3 className="mb-4 text-xl font-semibold">How it works</h3>
         <div className="grid gap-4 md:grid-cols-3">
-          <Step n={1} title="Answer MCQs" desc="12 questions, 5 question types, 10 KCs" icon={Brain} />
-          <Step n={2} title="Code Challenge" desc="Write & debug countVowels in our IDE" icon={Code2} />
-          <Step n={3} title="AI Diagnosis" desc="Personalized streaming report on your gaps" icon={Zap} />
+          <Step n={1} title="Answer MCQs" desc="One question from every Knowledge Concept" icon={Brain} />
+          <Step n={2} title="AI Diagnosis" desc="Structured report on strengths and gaps" icon={Zap} />
+          <Step n={3} title="Practice in Playground" desc="Code countVowels in our IDE — anytime" icon={Code2} />
         </div>
       </div>
     </div>
