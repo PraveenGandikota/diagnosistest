@@ -28,7 +28,7 @@ const Quiz = () => {
       const elapsed = Math.floor((Date.now() - session.startTime!) / 1000);
       const remaining = Math.max(0, TOTAL_SECS - elapsed);
       setTimeLeft(remaining);
-      if (remaining === 0) navigate("/playground");
+      if (remaining === 0) navigate("/result");
     };
     tick();
     const id = setInterval(tick, 1000);
@@ -66,7 +66,7 @@ const Quiz = () => {
 
   const handleNext = () => {
     if (session.currentIdx + 1 >= session.questions.length) {
-      navigate("/playground");
+      navigate("/result");
       return;
     }
     nextQuestion();
