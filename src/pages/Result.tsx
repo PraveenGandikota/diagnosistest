@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, X, Sparkles } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, X, Sparkles, ThumbsUp, AlertTriangle, Target } from "lucide-react";
 import { useQuiz, computeKCScores } from "@/lib/quiz-store";
 import { ALL_KCS, KC_NAMES, type KCId } from "@/lib/quiz-types";
 import { storage } from "@/lib/storage";
 
+interface AIReport {
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  actionPlan: string[];
+}
+
 const Result = () => {
   const { session, reset } = useQuiz();
-  const [report, setReport] = useState("");
-  const [streamDone, setStreamDone] = useState(false);
+  const [aiReport, setAiReport] = useState<AIReport | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openAnswer, setOpenAnswer] = useState<string | null>(null);
   const savedRef = useRef(false);
@@ -16,44 +23,35 @@ const Result = () => {
   const { mcqCorrect, mcqTotal, scorePct, durationSec, kcScores } = useMemo(() => {
     const correct = session.answers.filter((a) => a.correct).length;
     const total = session.answers.length || 1;
-    const cc1 = session.cc.find((c) => c.ccid === 1);
-    const cc2 = session.cc.find((c) => c.ccid === 2);
-    const ccPoints = (cc1?.passed ? 1 : 0) + (cc2?.passed ? 1 : 0);
-    // Score: 70% MCQ, 30% code (15% per challenge)
-    const score = Math.round((correct / total) * 70 + ccPoints * 15);
+    const score = Math.round((correct / total) * 100);
     const dur = session.startTime ? Math.round((Date.now() - session.startTime) / 1000) : 0;
-    const kcs = computeKCScores(session.answers);
-    // Boost KC scores from code challenges
-    [...(cc1?.kcsDemonstrated || []), ...(cc2?.kcsDemonstrated || [])].forEach((k) => {
-      kcs[k].correct += 1;
-      kcs[k].total += 1;
-    });
-    [...(cc1?.kcsMissed || []), ...(cc2?.kcsMissed || [])].forEach((k) => {
-      kcs[k].total += 1;
-    });
-    return { mcqCorrect: correct, mcqTotal: total, scorePct: score, durationSec: dur, kcScores: kcs };
+    return {
+      mcqCorrect: correct,
+      mcqTotal: total,
+      scorePct: score,
+      durationSec: dur,
+      kcScores: computeKCScores(session.answers),
+    };
   }, [session]);
-
-  const cc1 = session.cc.find((c) => c.ccid === 1);
-  const cc2 = session.cc.find((c) => c.ccid === 2);
 
   const weakestKC = useMemo(() => {
     let worst: { kc: KCId; pct: number } | null = null;
     ALL_KCS.forEach((kc) => {
       const s = kcScores[kc];
-      const pct = s.total === 0 ? 100 : (s.correct / s.total) * 100;
+      if (s.total === 0) return;
+      const pct = (s.correct / s.total) * 100;
       if (!worst || pct < worst.pct) worst = { kc, pct };
     });
-    return worst!.kc;
+    return worst?.kc ?? "—";
   }, [kcScores]);
 
-  // Stream the AI report
+  // Fetch structured report
   useEffect(() => {
     if (session.answers.length === 0) return;
     let cancelled = false;
-    setReport("");
-    setStreamDone(false);
+    setLoading(true);
     setError(null);
+    setAiReport(null);
 
     const kcBreakdown = ALL_KCS.map((kc) => {
       const s = kcScores[kc];
@@ -65,8 +63,6 @@ const Result = () => {
       score: scorePct,
       correct: mcqCorrect,
       total: mcqTotal,
-      cc1Result: cc1 ? `${cc1.passedCount}/${cc1.totalCount} tests passed` : "skipped",
-      cc2Result: cc2 ? `${cc2.passedCount}/${cc2.totalCount} tests passed` : "skipped",
       timeTaken: `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`,
       kcBreakdown,
     };
@@ -82,49 +78,32 @@ const Result = () => {
           },
           body: JSON.stringify(payload),
         });
-        if (resp.status === 429) { setError("Rate limit reached. Please try again in a moment."); return; }
-        if (resp.status === 402) { setError("AI credits exhausted. Add credits in Settings → Workspace → Usage."); return; }
-        if (!resp.ok || !resp.body) { setError("Could not generate report."); return; }
-
-        const reader = resp.body.getReader();
-        const dec = new TextDecoder();
-        let buf = "";
-        let acc = "";
-        while (!cancelled) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let nl: number;
-          while ((nl = buf.indexOf("\n")) !== -1) {
-            let line = buf.slice(0, nl);
-            buf = buf.slice(nl + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (!line.startsWith("data: ")) continue;
-            const j = line.slice(6).trim();
-            if (j === "[DONE]") { setStreamDone(true); break; }
-            try {
-              const parsed = JSON.parse(j);
-              const c = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (c) { acc += c; setReport(acc); }
-            } catch {
-              buf = line + "\n" + buf;
-              break;
-            }
-          }
-        }
-        if (!cancelled) setStreamDone(true);
-      } catch (e) {
-        if (!cancelled) setError("Network error generating report.");
+        if (resp.status === 429) { setError("Rate limit reached. Please try again in a moment."); setLoading(false); return; }
+        if (resp.status === 402) { setError("AI credits exhausted. Add credits in Settings → Workspace → Usage."); setLoading(false); return; }
+        if (!resp.ok) { setError("Could not generate report."); setLoading(false); return; }
+        const data = (await resp.json()) as AIReport | { error: string };
+        if (cancelled) return;
+        if ("error" in data) { setError(data.error); setLoading(false); return; }
+        setAiReport(data);
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setError("Network error generating report."); setLoading(false); }
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist submission once report is done (or even partial after a delay)
+  // Persist submission once report arrives
   useEffect(() => {
-    if (savedRef.current || !streamDone) return;
+    if (savedRef.current || !aiReport) return;
     savedRef.current = true;
+    const reportText = [
+      `SUMMARY\n${aiReport.summary}`,
+      `\nSTRENGTHS\n${aiReport.strengths.map((s) => "• " + s).join("\n")}`,
+      `\nTO IMPROVE\n${aiReport.improvements.map((s) => "• " + s).join("\n")}`,
+      `\nACTION PLAN\n${aiReport.actionPlan.map((s) => "• " + s).join("\n")}`,
+    ].join("\n");
     storage.addSubmission({
       id: `sub_${Date.now()}`,
       studentName: session.studentName || "Anonymous",
@@ -133,15 +112,15 @@ const Result = () => {
       durationSec,
       mcqCorrect,
       mcqTotal,
-      cc1Passed: !!cc1?.passed,
-      cc2Passed: !!cc2?.passed,
+      cc1Passed: false,
+      cc2Passed: false,
       scorePct,
       weakestKC,
       kcScores,
-      aiReport: report,
+      aiReport: reportText,
       answers: session.answers,
     });
-  }, [streamDone, report, session, durationSec, mcqCorrect, mcqTotal, cc1, cc2, scorePct, weakestKC, kcScores]);
+  }, [aiReport, session, durationSec, mcqCorrect, mcqTotal, scorePct, weakestKC, kcScores]);
 
   if (session.answers.length === 0) {
     return (
@@ -173,8 +152,8 @@ const Result = () => {
 
         {/* Score breakdown */}
         <div className="grid gap-4 md:grid-cols-3">
-          <Stat label="MCQ" value={`${mcqCorrect}/${mcqTotal}`} sub={`${Math.round((mcqCorrect / mcqTotal) * 100)}%`} />
-          <Stat label="Code" value={`${(cc1?.passed ? 1 : 0) + (cc2?.passed ? 1 : 0)}/2`} sub={`${(cc1?.passedCount || 0) + (cc2?.passedCount || 0)} test cases`} />
+          <Stat label="Correct" value={`${mcqCorrect}/${mcqTotal}`} sub={`${Math.round((mcqCorrect / mcqTotal) * 100)}%`} />
+          <Stat label="Weakest KC" value={weakestKC} sub={KC_NAMES[weakestKC as KCId] ?? ""} />
           <Stat label="Time" value={`${Math.floor(durationSec / 60)}m ${durationSec % 60}s`} sub="elapsed" />
         </div>
 
@@ -185,13 +164,14 @@ const Result = () => {
             {ALL_KCS.map((kc) => {
               const s = kcScores[kc];
               const pct = s.total === 0 ? 0 : Math.round((s.correct / s.total) * 100);
-              const color =
-                pct >= 75 ? "bg-success" : pct >= 40 ? "bg-warning" : "bg-destructive";
+              const color = s.total === 0 ? "bg-muted" : pct >= 75 ? "bg-success" : pct >= 40 ? "bg-warning" : "bg-destructive";
               return (
-                <div key={kc} className="group">
+                <div key={kc} title={KC_NAMES[kc]}>
                   <div className="mb-1 flex items-center justify-between text-xs font-mono">
                     <span><span className="text-primary">{kc}</span> · {KC_NAMES[kc]}</span>
-                    <span className="text-muted-foreground">{pct}% {pct >= 60 ? "✓" : "✗"}</span>
+                    <span className="text-muted-foreground">
+                      {s.total === 0 ? "not tested" : `${pct}% ${pct >= 60 ? "✓" : "✗"}`}
+                    </span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div className={`h-full ${color} anim-fill`} style={{ width: `${pct}%`, transition: "width 1s" }} />
@@ -202,16 +182,51 @@ const Result = () => {
           </div>
         </div>
 
-        {/* AI Report */}
+        {/* AI Report — structured */}
         <div className="panel gradient-border p-6">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             <Sparkles className="h-4 w-4 text-primary" /> AI Tutor Report
           </h3>
-          {error ? (
+
+          {error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>
-          ) : (
-            <div className={`whitespace-pre-wrap font-sans text-sm leading-relaxed ${!streamDone ? "blink-cursor" : ""}`}>
-              {report || <span className="text-muted-foreground">Generating personalized analysis…</span>}
+          )}
+
+          {loading && !error && (
+            <div className="space-y-3">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="h-4 w-full animate-pulse rounded bg-muted" style={{ width: `${100 - i * 12}%` }} />
+              ))}
+              <div className="text-xs text-muted-foreground">Generating personalized analysis…</div>
+            </div>
+          )}
+
+          {aiReport && (
+            <div className="space-y-6">
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary">Summary</div>
+                <p className="text-sm leading-relaxed">{aiReport.summary}</p>
+              </div>
+
+              <ReportSection
+                title="What you did well"
+                items={aiReport.strengths}
+                icon={ThumbsUp}
+                accent="success"
+              />
+              <ReportSection
+                title="What to improve"
+                items={aiReport.improvements}
+                icon={AlertTriangle}
+                accent="warning"
+              />
+              <ReportSection
+                title="This week's action plan"
+                items={aiReport.actionPlan}
+                icon={Target}
+                accent="primary"
+                numbered
+              />
             </div>
           )}
         </div>
@@ -256,6 +271,9 @@ const Result = () => {
           >
             Take quiz again
           </Link>
+          <Link to="/playground" className="rounded-md border border-border bg-panel px-5 py-2.5 text-sm font-semibold hover:bg-card">
+            Practice in the Playground
+          </Link>
           <Link to="/results" className="rounded-md border border-border bg-panel px-5 py-2.5 text-sm font-semibold hover:bg-card">
             View all submissions
           </Link>
@@ -272,5 +290,44 @@ const Stat = ({ label, value, sub }: { label: string; value: string; sub: string
     <div className="text-xs text-muted-foreground">{sub}</div>
   </div>
 );
+
+const ACCENTS = {
+  success: { dot: "bg-success", text: "text-success", border: "border-success/30", soft: "bg-success/5" },
+  warning: { dot: "bg-warning", text: "text-warning", border: "border-warning/30", soft: "bg-warning/5" },
+  primary: { dot: "bg-primary", text: "text-primary", border: "border-primary/30", soft: "bg-primary/5" },
+} as const;
+
+const ReportSection = ({
+  title, items, icon: Icon, accent, numbered = false,
+}: {
+  title: string;
+  items: string[];
+  icon: React.ComponentType<{ className?: string }>;
+  accent: keyof typeof ACCENTS;
+  numbered?: boolean;
+}) => {
+  const a = ACCENTS[accent];
+  return (
+    <div>
+      <div className={`mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${a.text}`}>
+        <Icon className="h-4 w-4" /> {title}
+      </div>
+      <ul className="space-y-2">
+        {items.map((item, i) => (
+          <li key={i} className={`flex items-start gap-3 rounded-md border ${a.border} ${a.soft} px-3 py-2.5 text-sm leading-relaxed`}>
+            {numbered ? (
+              <span className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full ${a.dot} font-mono text-[10px] font-bold text-background`}>
+                {i + 1}
+              </span>
+            ) : (
+              <span className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${a.dot}`} />
+            )}
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
 
 export default Result;
