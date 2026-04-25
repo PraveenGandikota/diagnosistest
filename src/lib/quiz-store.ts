@@ -87,23 +87,60 @@ export function computeKCScores(answers: AnswerRecord[]): Record<KCId, { correct
   return out;
 }
 
+/**
+ * Pick questions for a quiz session.
+ * Strategy:
+ *   1. One question from EVERY KC first (round 1) — full coverage.
+ *   2. If more slots remain, do additional rounds, again one per KC.
+ *   3. Within each KC, prioritize question types in this order:
+ *        Fill in the blank > Tweaking > Fixing bug > Debugging > Reading
+ *      (Higher-priority types come first; ties broken randomly.)
+ */
+const TYPE_PRIORITY: Record<string, number> = {
+  "Fill in the blank": 1,
+  "Tweaking": 2,
+  "Fixing bug": 3,
+  "Debugging": 4,
+  "Reading": 5,
+};
+
 export function pickQuestions(bank: Question[], targetCount = 12): Question[] {
-  // Group by KC, sample up to ceil(target/kcs) per KC, then top up
   const byKC = new Map<KCId, Question[]>();
   bank.forEach((q) => {
     if (!byKC.has(q.kc)) byKC.set(q.kc, []);
     byKC.get(q.kc)!.push(q);
   });
-  const shuffled = (a: Question[]) => [...a].sort(() => Math.random() - 0.5);
-  const perKC = Math.max(1, Math.ceil(targetCount / byKC.size));
-  let picked: Question[] = [];
+
+  // Sort each KC's questions by type priority, with random tie-break
   for (const [, qs] of byKC) {
-    picked.push(...shuffled(qs).slice(0, perKC));
+    qs.sort((a, b) => {
+      const pa = TYPE_PRIORITY[a.type] ?? 99;
+      const pb = TYPE_PRIORITY[b.type] ?? 99;
+      if (pa !== pb) return pa - pb;
+      return Math.random() - 0.5;
+    });
   }
-  picked = shuffled(picked).slice(0, targetCount);
-  if (picked.length < targetCount) {
-    const remaining = bank.filter((q) => !picked.includes(q));
-    picked.push(...shuffled(remaining).slice(0, targetCount - picked.length));
+
+  // Round-robin through KCs, taking next-best question from each
+  const cursors = new Map<KCId, number>();
+  byKC.forEach((_, kc) => cursors.set(kc, 0));
+  const kcOrder = Array.from(byKC.keys()).sort(() => Math.random() - 0.5);
+
+  const picked: Question[] = [];
+  let progress = true;
+  while (picked.length < targetCount && progress) {
+    progress = false;
+    for (const kc of kcOrder) {
+      if (picked.length >= targetCount) break;
+      const idx = cursors.get(kc)!;
+      const list = byKC.get(kc)!;
+      if (idx < list.length) {
+        picked.push(list[idx]);
+        cursors.set(kc, idx + 1);
+        progress = true;
+      }
+    }
   }
   return picked;
 }
+
