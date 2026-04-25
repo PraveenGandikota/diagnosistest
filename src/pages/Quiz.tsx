@@ -110,7 +110,7 @@ const Quiz = () => {
             <Play className="h-4 w-4" /> Start 10-minute quiz
           </button>
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Up to 12 MCQs · one from every Knowledge Concept · then your AI diagnosis
+            Up to 12 KC-driven items · one from every Knowledge Concept · then your AI diagnosis
           </p>
         </div>
       </div>

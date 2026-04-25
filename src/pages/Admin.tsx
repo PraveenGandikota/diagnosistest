@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Lock, Trash2, Upload, Plus, Download } from "lucide-react";
 import { storage } from "@/lib/storage";
-import { ALL_KCS, KC_NAMES, type KCId, type Question, type QuestionType } from "@/lib/quiz-types";
+import { ALL_KCS, KC_NAMES, QUESTION_TYPES, normalizeQuestionType, type KCId, type Question, type QuestionType } from "@/lib/quiz-types";
 
 type Tab = "overview" | "students" | "bank" | "upload";
 
@@ -216,7 +216,7 @@ const Bank = ({ onChange }: { onChange: () => void }) => {
               <th className="px-4 py-3 text-left">KC</th>
               <th className="px-4 py-3 text-left">Type</th>
               <th className="px-4 py-3 text-left">Question</th>
-              <th className="px-4 py-3 text-left">Correct</th>
+              <th className="px-4 py-3 text-left">Stored answer</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
@@ -226,7 +226,9 @@ const Bank = ({ onChange }: { onChange: () => void }) => {
                 <td className="px-4 py-3 font-mono text-xs text-primary">{q.kc}</td>
                 <td className="px-4 py-3 text-xs">{q.type}</td>
                 <td className="max-w-sm truncate px-4 py-3 text-xs">{q.question}</td>
-                <td className="px-4 py-3 text-xs">{String.fromCharCode(65 + q.correct)}</td>
+                <td className="max-w-xs truncate px-4 py-3 text-xs">
+                  {String.fromCharCode(65 + q.correct)} - {q.options[q.correct]}
+                </td>
                 <td className="px-4 py-3 text-right">
                   {isExtra(q.id) ? (
                     <button onClick={() => handleDelete(q.id)} className="rounded border border-border px-2 py-1 text-xs text-destructive hover:bg-destructive/10">
@@ -247,7 +249,7 @@ const Bank = ({ onChange }: { onChange: () => void }) => {
 
 const AddQuestionForm = ({ onAdded }: { onAdded: () => void }) => {
   const [kc, setKc] = useState<KCId>("KC-01");
-  const [type, setType] = useState<QuestionType>("Reading");
+  const [type, setType] = useState<QuestionType>("Multiple-choice (MCQ)");
   const [question, setQuestion] = useState("");
   const [code, setCode] = useState("");
   const [opts, setOpts] = useState(["", "", "", ""]);
@@ -280,7 +282,7 @@ const AddQuestionForm = ({ onAdded }: { onAdded: () => void }) => {
         <label className="block">
           <span className="mb-1 block text-xs text-muted-foreground">Question type</span>
           <select value={type} onChange={(e) => setType(e.target.value as QuestionType)} className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm">
-            {(["Fixing bug","Fill in the blank","Reading","Debugging","Tweaking"] as QuestionType[]).map((t) => <option key={t}>{t}</option>)}
+            {QUESTION_TYPES.map((t) => <option key={t}>{t}</option>)}
           </select>
         </label>
       </div>
@@ -335,7 +337,7 @@ const UploadCSV = ({ onChange }: { onChange: () => void }) => {
         id: (id || `csv_${Date.now()}_${idx}`).trim(),
         kc: ((kc || "KC-01").trim()) as KCId,
         kcName: KC_NAMES[((kc || "KC-01").trim()) as KCId] || "Imported",
-        type: ((type || "Reading").trim()) as QuestionType,
+        type: normalizeQuestionType(type || "Multiple-choice (MCQ)"),
         question: (question || "Untitled").trim(),
         code: "",
         options: opts as [string,string,string,string],

@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Question, KCId } from "./quiz-types";
-import { ALL_KCS } from "./quiz-types";
+import type { KCId, Question } from "./quiz-types";
+import { ALL_KCS, getKCTypePriority, normalizeQuestionType } from "./quiz-types";
 
 export interface AnswerRecord {
   qid: string;
@@ -45,6 +45,8 @@ interface State {
   reset: () => void;
 }
 
+type RandomFn = () => number;
+
 const empty: QuizSession = {
   studentName: "",
   studentId: "",
@@ -81,50 +83,75 @@ export function computeKCScores(answers: AnswerRecord[]): Record<KCId, { correct
   const out = {} as Record<KCId, { correct: number; total: number }>;
   ALL_KCS.forEach((kc) => (out[kc] = { correct: 0, total: 0 }));
   answers.forEach((a) => {
-    out[a.kc].total++;
-    if (a.correct) out[a.kc].correct++;
+    out[a.kc].total += 1;
+    if (a.correct) out[a.kc].correct += 1;
   });
   return out;
+}
+
+export function shuffleArray<T>(items: T[], rng: RandomFn = Math.random): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+export function shuffleQuestionOptions(question: Question, rng: RandomFn = Math.random): Question {
+  const decorated = question.options.map((text, idx) => {
+    const isCorrect = idx === question.correct;
+    const wrongIdx = idx < question.correct ? idx : idx - 1;
+    return {
+      text,
+      isCorrect,
+      diagnosis: isCorrect ? null : question.wrongDiagnosis[wrongIdx],
+    };
+  });
+
+  const shuffled = shuffleArray(decorated, rng);
+  const correct = shuffled.findIndex((option) => option.isCorrect);
+  const wrongDiagnosis = shuffled
+    .filter((option) => !option.isCorrect)
+    .map((option) => option.diagnosis ?? "Not quite.") as [string, string, string];
+
+  return {
+    ...question,
+    options: shuffled.map((option) => option.text) as [string, string, string, string],
+    correct: correct as 0 | 1 | 2 | 3,
+    wrongDiagnosis,
+  };
 }
 
 /**
  * Pick questions for a quiz session.
  * Strategy:
- *   1. One question from EVERY KC first (round 1) — full coverage.
+ *   1. One question from every KC first (round 1) for full coverage.
  *   2. If more slots remain, do additional rounds, again one per KC.
- *   3. Within each KC, prioritize question types in this order:
- *        Fill in the blank > Tweaking > Fixing bug > Debugging > Reading
- *      (Higher-priority types come first; ties broken randomly.)
+ *   3. Within each KC, use the KC's preferred item-type ordering.
+ *   4. Randomize option positions per session so the correct answer
+ *      is not pinned to the same letter across the bank.
  */
-const TYPE_PRIORITY: Record<string, number> = {
-  "Fill in the blank": 1,
-  "Tweaking": 2,
-  "Fixing bug": 3,
-  "Debugging": 4,
-  "Reading": 5,
-};
-
-export function pickQuestions(bank: Question[], targetCount = 12): Question[] {
+export function pickQuestions(bank: Question[], targetCount = 12, rng: RandomFn = Math.random): Question[] {
   const byKC = new Map<KCId, Question[]>();
-  bank.forEach((q) => {
-    if (!byKC.has(q.kc)) byKC.set(q.kc, []);
-    byKC.get(q.kc)!.push(q);
+  bank.forEach((question) => {
+    const normalizedQuestion = {
+      ...question,
+      type: normalizeQuestionType(question.type),
+    };
+    if (!byKC.has(normalizedQuestion.kc)) byKC.set(normalizedQuestion.kc, []);
+    byKC.get(normalizedQuestion.kc)?.push(normalizedQuestion);
   });
 
-  // Sort each KC's questions by type priority, with random tie-break
-  for (const [, qs] of byKC) {
-    qs.sort((a, b) => {
-      const pa = TYPE_PRIORITY[a.type] ?? 99;
-      const pb = TYPE_PRIORITY[b.type] ?? 99;
-      if (pa !== pb) return pa - pb;
-      return Math.random() - 0.5;
-    });
+  for (const [, questions] of byKC) {
+    const randomized = shuffleArray(questions, rng);
+    randomized.sort((a, b) => getKCTypePriority(a.kc, a.type) - getKCTypePriority(b.kc, b.type));
+    questions.splice(0, questions.length, ...randomized);
   }
 
-  // Round-robin through KCs, taking next-best question from each
   const cursors = new Map<KCId, number>();
   byKC.forEach((_, kc) => cursors.set(kc, 0));
-  const kcOrder = Array.from(byKC.keys()).sort(() => Math.random() - 0.5);
+  const kcOrder = shuffleArray(Array.from(byKC.keys()), rng);
 
   const picked: Question[] = [];
   let progress = true;
@@ -132,8 +159,8 @@ export function pickQuestions(bank: Question[], targetCount = 12): Question[] {
     progress = false;
     for (const kc of kcOrder) {
       if (picked.length >= targetCount) break;
-      const idx = cursors.get(kc)!;
-      const list = byKC.get(kc)!;
+      const idx = cursors.get(kc) ?? 0;
+      const list = byKC.get(kc) ?? [];
       if (idx < list.length) {
         picked.push(list[idx]);
         cursors.set(kc, idx + 1);
@@ -141,6 +168,6 @@ export function pickQuestions(bank: Question[], targetCount = 12): Question[] {
       }
     }
   }
-  return picked;
-}
 
+  return picked.map((question) => shuffleQuestionOptions(question, rng));
+}

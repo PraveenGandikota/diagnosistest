@@ -1,4 +1,4 @@
-import type { Question } from "@/lib/quiz-types";
+import { KC_NAMES, normalizeQuestionType, type Question } from "@/lib/quiz-types";
 import { SEED_QUESTIONS } from "@/lib/seed-questions";
 
 const KEY_BANK = "quiz_question_bank_extra";
@@ -35,17 +35,18 @@ export const storage = {
   getQuestions(): Question[] {
     try {
       const extra = JSON.parse(localStorage.getItem(KEY_BANK) || "[]") as Question[];
-      return [...SEED_QUESTIONS, ...extra];
+      return [...SEED_QUESTIONS, ...extra].map(normalizeQuestion);
     } catch {
-      return SEED_QUESTIONS;
+      return SEED_QUESTIONS.map(normalizeQuestion);
     }
   },
   setExtraQuestions(extra: Question[]) {
-    localStorage.setItem(KEY_BANK, JSON.stringify(extra));
+    localStorage.setItem(KEY_BANK, JSON.stringify(extra.map(normalizeQuestion)));
   },
   getExtraQuestions(): Question[] {
     try {
-      return JSON.parse(localStorage.getItem(KEY_BANK) || "[]");
+      const extra = JSON.parse(localStorage.getItem(KEY_BANK) || "[]") as Question[];
+      return extra.map(normalizeQuestion);
     } catch {
       return [];
     }
@@ -81,3 +82,12 @@ export const storage = {
     localStorage.setItem(KEY_THEME, t);
   },
 };
+
+function normalizeQuestion(question: Question): Question {
+  const kcName = KC_NAMES[question.kc] ?? question.kcName ?? "Imported";
+  return {
+    ...question,
+    kcName,
+    type: normalizeQuestionType(question.type),
+  };
+}

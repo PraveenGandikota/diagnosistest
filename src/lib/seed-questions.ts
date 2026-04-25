@@ -7,7 +7,7 @@ import type { Question } from "./quiz-types";
 export const SEED_QUESTIONS: Question[] = [
   {
     id: "q1", kc: "KC-01", kcName: "String iteration",
-    type: "Fixing bug",
+    type: "Code modification",
     question: "This function should count vowels but skips the last character. Pick the fix.",
     code: `def countVowels(s):
     count = 0
@@ -31,7 +31,7 @@ export const SEED_QUESTIONS: Question[] = [
   },
   {
     id: "q2", kc: "KC-02", kcName: "Vowel set",
-    type: "Reading",
+    type: "Multiple-choice (MCQ)",
     question: 'What does countVowels("rhythm") return?',
     code: `def countVowels(s):
     vowels = "aeiou"
@@ -75,7 +75,7 @@ export const SEED_QUESTIONS: Question[] = [
   },
   {
     id: "q4", kc: "KC-04", kcName: "Membership with `in`",
-    type: "Fixing bug",
+    type: "Fill in the blank",
     question: "Pick the fix for the buggy comparison.",
     code: `def countVowels(s):
     count = 0
@@ -123,7 +123,7 @@ export const SEED_QUESTIONS: Question[] = [
   },
   {
     id: "q6", kc: "KC-06", kcName: "Lookup data structure",
-    type: "Tweaking",
+    type: "Code completion",
     question: "For an input of length 10⁶, which lookup is fastest per character?",
     code: "",
     options: [
@@ -142,7 +142,7 @@ export const SEED_QUESTIONS: Question[] = [
   },
   {
     id: "q7", kc: "KC-07", kcName: "Robustness to non-alpha",
-    type: "Reading",
+    type: "Multiple-choice (MCQ)",
     question: 'What does countVowels("hello123!") return?',
     code: `def countVowels(s):
     count = 0
@@ -210,7 +210,7 @@ export const SEED_QUESTIONS: Question[] = [
   },
   {
     id: "q10", kc: "KC-10", kcName: "Edge case: 1-char string",
-    type: "Fixing bug",
+    type: "Code modification",
     question: "This skips a single-character string. Pick the fix.",
     code: `def countVowels(s):
     count = 0

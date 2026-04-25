@@ -21,7 +21,7 @@ const Home = () => {
           Master <span className="text-primary">countVowels</span> — one KC at a time.
         </h1>
         <p className="mb-8 max-w-2xl text-muted-foreground">
-          A timed MCQ + live coding quiz that diagnoses exactly which Python concepts you've nailed and where you're slipping.
+          A timed KC-driven quiz that diagnoses exactly which Python concepts you've nailed and where you're slipping.
         </p>
 
         <div className="mb-10 panel gradient-border p-6">
@@ -63,7 +63,7 @@ const Home = () => {
 
         <h3 className="mb-4 text-xl font-semibold">How it works</h3>
         <div className="grid gap-4 md:grid-cols-3">
-          <Step n={1} title="Answer MCQs" desc="One question from every Knowledge Concept" icon={Brain} />
+          <Step n={1} title="Answer KC-driven items" desc="One targeted item from every Knowledge Concept" icon={Brain} />
           <Step n={2} title="AI Diagnosis" desc="Structured report on strengths and gaps" icon={Zap} />
           <Step n={3} title="Practice in Playground" desc="Code countVowels in our IDE — anytime" icon={Code2} />
         </div>
@@ -79,7 +79,17 @@ const Stat = ({ label, value }: { label: string; value: number | string }) => (
   </div>
 );
 
-const Step = ({ n, title, desc, icon: Icon }: { n: number; title: string; desc: string; icon: any }) => (
+const Step = ({
+  n,
+  title,
+  desc,
+  icon: Icon,
+}: {
+  n: number;
+  title: string;
+  desc: string;
+  icon: React.ComponentType<{ className?: string }>;
+}) => (
   <div className="ide-card p-5">
     <div className="mb-3 flex items-center gap-3">
       <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 font-mono text-sm font-bold text-primary">
