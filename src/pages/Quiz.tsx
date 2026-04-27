@@ -1,48 +1,60 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Play } from "lucide-react";
-import { TimerRing } from "@/components/TimerRing";
 import { PyHighlight } from "@/components/PyHighlight";
 import { storage } from "@/lib/storage";
 import { pickQuestions, useQuiz } from "@/lib/quiz-store";
-
-const TOTAL_SECS = 600;
 
 const Quiz = () => {
   const navigate = useNavigate();
   const { session, setStudent, startQuiz, recordAnswer, nextQuestion } = useQuiz();
   const [phase, setPhase] = useState<"intro" | "running">(session.startTime ? "running" : "intro");
   const [name, setName] = useState(session.studentName);
-  const [sid, setSid] = useState(session.studentId);
+  const [nameError, setNameError] = useState("");
+  const bank = useMemo(() => storage.getQuestions(), []);
+  const quizNames = useMemo(
+    () => Array.from(new Set(bank.map((question) => question.quizName || "Imported Quiz"))).sort((a, b) => a.localeCompare(b)),
+    [bank],
+  );
+  const [selectedQuiz, setSelectedQuiz] = useState(session.quizName);
   const [selected, setSelected] = useState<number | null>(null);
   const [answered, setAnswered] = useState(false);
   const [animClass, setAnimClass] = useState("");
-  const [timeLeft, setTimeLeft] = useState(TOTAL_SECS);
 
   const q = session.questions[session.currentIdx];
+  const selectedQuizBank = useMemo(
+    () => bank.filter((question) => question.quizName === selectedQuiz),
+    [bank, selectedQuiz],
+  );
+  const selectedQuizTopicCount = useMemo(
+    () => new Set(selectedQuizBank.map((question) => question.kc)).size,
+    [selectedQuizBank],
+  );
 
-  // Timer
   useEffect(() => {
-    if (phase !== "running" || !session.startTime) return;
-    const tick = () => {
-      const elapsed = Math.floor((Date.now() - session.startTime!) / 1000);
-      const remaining = Math.max(0, TOTAL_SECS - elapsed);
-      setTimeLeft(remaining);
-      if (remaining === 0) navigate("/result");
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [phase, session.startTime, navigate]);
+    if (!selectedQuiz && quizNames.length > 0) {
+      setSelectedQuiz(quizNames[0]);
+    }
+  }, [quizNames, selectedQuiz]);
 
   const handleStart = () => {
-    setStudent(name.trim() || "Anonymous", sid.trim());
-    const bank = storage.getQuestions();
-    const picked = pickQuestions(bank, Math.min(12, bank.length));
-    startQuiz(picked);
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setNameError("Student name is required before starting the quiz.");
+      return;
+    }
+    if (!selectedQuiz) return;
+
+    setStudent(trimmedName);
+    const picked = pickQuestions(bank, {
+      quizName: selectedQuiz,
+      targetCount: selectedQuizTopicCount,
+    });
+    startQuiz(picked, selectedQuiz);
     setPhase("running");
     setSelected(null);
     setAnswered(false);
+    setNameError("");
   };
 
   const handleSelect = (idx: number) => {
@@ -54,6 +66,7 @@ const Quiz = () => {
     recordAnswer({
       qid: q.id,
       kc: q.kc,
+      kcName: q.kcName,
       type: q.type,
       question: q.question,
       options: q.options,
@@ -76,7 +89,7 @@ const Quiz = () => {
 
   const progress = useMemo(
     () => (session.questions.length ? ((session.currentIdx + (answered ? 1 : 0)) / session.questions.length) * 100 : 0),
-    [session.currentIdx, session.questions.length, answered]
+    [session.currentIdx, session.questions.length, answered],
   );
 
   if (phase === "intro") {
@@ -84,33 +97,48 @@ const Quiz = () => {
       <div className="flex min-h-screen items-center justify-center px-6">
         <div className="panel w-full max-w-md p-8">
           <div className="mb-1 text-xs font-mono uppercase tracking-wider text-muted-foreground">Setup</div>
-          <h2 className="mb-6 text-2xl font-semibold">Start your quiz</h2>
+          <h2 className="mb-6 text-2xl font-semibold">Start your coding quiz</h2>
           <label className="mb-3 block">
-            <span className="mb-1 block text-xs text-muted-foreground">Name (optional)</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Student name *</span>
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                if (nameError && event.target.value.trim()) {
+                  setNameError("");
+                }
+              }}
               placeholder="Ada Lovelace"
               className="w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm outline-none focus:border-primary"
             />
+            {nameError && <p className="mt-2 text-xs text-destructive">{nameError}</p>}
           </label>
           <label className="mb-6 block">
-            <span className="mb-1 block text-xs text-muted-foreground">Student ID (optional)</span>
-            <input
-              value={sid}
-              onChange={(e) => setSid(e.target.value)}
-              placeholder="STU-001"
+            <span className="mb-1 block text-xs text-muted-foreground">Which quiz are you taking?</span>
+            <select
+              value={selectedQuiz}
+              onChange={(event) => setSelectedQuiz(event.target.value)}
               className="w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm outline-none focus:border-primary"
-            />
+            >
+              {quizNames.map((quizName) => (
+                <option key={quizName} value={quizName}>
+                  {quizName}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {selectedQuizBank.length} question{selectedQuizBank.length === 1 ? "" : "s"} available in this quiz
+            </p>
           </label>
           <button
             onClick={handleStart}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            disabled={!selectedQuiz || selectedQuizBank.length === 0 || !name.trim()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Play className="h-4 w-4" /> Start 10-minute quiz
+            <Play className="h-4 w-4" /> Start quiz
           </button>
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Up to 12 KC-driven items · one from every Knowledge Concept · then your AI diagnosis
+            You will receive detailed feedback and revision links after you finish the quiz.
           </p>
         </div>
       </div>
@@ -122,34 +150,28 @@ const Quiz = () => {
   return (
     <div className="min-h-screen px-6 py-6 md:px-10">
       <div className="mx-auto max-w-4xl">
-        {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="badge-kc">{q.kc} · {q.kcName}</span>
+            <span className="badge-type">{session.quizName || "Coding Quiz"}</span>
             <span className="badge-type">{q.type}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-muted-foreground">
-              Q{session.currentIdx + 1} of {session.questions.length}
-            </span>
-            <TimerRing value={timeLeft} max={TOTAL_SECS} />
-          </div>
+          <span className="font-mono text-xs text-muted-foreground">
+            Q{session.currentIdx + 1} of {session.questions.length}
+          </span>
         </div>
 
-        {/* Progress */}
         <div className="mb-6 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div className="h-full bg-primary transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
 
-        {/* Question card */}
         <div className={`panel p-6 ${animClass}`}>
           <h3 className="mb-4 text-lg font-medium leading-relaxed">{q.question}</h3>
           {q.code && <div className="mb-5"><PyHighlight code={q.code} /></div>}
 
           <div className="grid gap-2.5">
-            {q.options.map((opt, i) => {
-              const isCorrect = i === q.correct;
-              const isSelected = i === selected;
+            {q.options.map((option, index) => {
+              const isCorrect = index === q.correct;
+              const isSelected = index === selected;
               let cls = "border-border bg-card hover:border-primary/50";
               if (answered) {
                 if (isCorrect) cls = "border-success bg-success/10";
@@ -158,36 +180,19 @@ const Quiz = () => {
               }
               return (
                 <button
-                  key={i}
+                  key={index}
                   disabled={answered}
-                  onClick={() => handleSelect(i)}
+                  onClick={() => handleSelect(index)}
                   className={`flex items-start gap-3 rounded-md border px-4 py-3 text-left text-sm transition-all ${cls}`}
                 >
                   <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border border-border bg-panel font-mono text-xs">
-                    {String.fromCharCode(65 + i)}
+                    {String.fromCharCode(65 + index)}
                   </span>
-                  <span className="flex-1 font-mono">{opt}</span>
+                  <span className="flex-1 font-mono">{option}</span>
                 </button>
               );
             })}
           </div>
-
-          {answered && (
-            <div className="mt-5 rounded-md border border-border bg-card p-4 text-sm anim-slide-in">
-              {selected === q.correct ? (
-                <div className="text-success">
-                  ✓ Correct. <span className="text-foreground">{q.explanation}</span>
-                </div>
-              ) : (
-                <div>
-                  <div className="text-destructive">
-                    ✗ {q.wrongDiagnosis[selected! < q.correct ? selected! : selected! - 1] ?? "Not quite."}
-                  </div>
-                  <div className="mt-1 text-muted-foreground">{q.explanation}</div>
-                </div>
-              )}
-            </div>
-          )}
 
           {answered && (
             <div className="mt-5 flex justify-end">
@@ -195,7 +200,7 @@ const Quiz = () => {
                 onClick={handleNext}
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
               >
-                {session.currentIdx + 1 >= session.questions.length ? "See your diagnosis" : "Next"}
+                {session.currentIdx + 1 >= session.questions.length ? "Finish quiz and view suggestions" : "Next"}
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>

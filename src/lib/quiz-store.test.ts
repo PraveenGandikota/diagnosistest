@@ -1,29 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { normalizeQuestionType, type Question } from "./quiz-types";
-import { pickQuestions, shuffleQuestionOptions } from "./quiz-store";
+import { pickQuestions } from "./quiz-store";
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
   return {
     id: "q",
     kc: "KC-01",
     kcName: "String iteration",
+    quizName: "Sample Quiz",
     type: "Multiple-choice (MCQ)",
     question: "Pick the best answer.",
     code: "",
-    options: ["Correct", "Wrong A", "Wrong B", "Wrong C"],
+    options: ["Correct", "Wrong A", "Wrong B"],
     correct: 0,
     explanation: "Because it is correct.",
-    wrongDiagnosis: ["diag A", "diag B", "diag C"],
+    wrongDiagnosis: ["diag A", "diag B"],
     ...overrides,
-  };
-}
-
-function sequenceRng(values: number[]) {
-  let idx = 0;
-  return () => {
-    const value = values[idx];
-    idx += 1;
-    return value ?? 0;
   };
 }
 
@@ -35,41 +27,64 @@ describe("normalizeQuestionType", () => {
   });
 });
 
-describe("shuffleQuestionOptions", () => {
-  it("moves the correct answer away from A and keeps wrong feedback aligned", () => {
-    const shuffled = shuffleQuestionOptions(
-      makeQuestion(),
-      sequenceRng([0.75, 0.5, 0]),
-    );
-
-    expect(shuffled.correct).toBe(1);
-    expect(shuffled.options).toEqual(["Wrong B", "Correct", "Wrong A", "Wrong C"]);
-    expect(shuffled.wrongDiagnosis).toEqual(["diag B", "diag A", "diag C"]);
-  });
-});
-
 describe("pickQuestions", () => {
-  it("uses the KC-specific item-type preference instead of a global order", () => {
-    const picked = pickQuestions(
-      [
-        makeQuestion({
-          id: "mcq",
-          kc: "KC-02",
-          kcName: "Correct vowel set (no y)",
-          type: "Multiple-choice (MCQ)",
-        }),
-        makeQuestion({
-          id: "fill",
-          kc: "KC-02",
-          kcName: "Correct vowel set (no y)",
-          type: "Fill in the blank",
-        }),
-      ],
-      1,
-      sequenceRng([0, 0, 0, 0, 0, 0]),
-    );
+  it("uses the KC-specific item-type preference when there is no explicit priority", () => {
+    const picked = pickQuestions([
+      makeQuestion({
+        id: "mcq",
+        kc: "KC-02",
+        kcName: "Correct vowel set (no y)",
+        type: "Multiple-choice (MCQ)",
+      }),
+      makeQuestion({
+        id: "fill",
+        kc: "KC-02",
+        kcName: "Correct vowel set (no y)",
+        type: "Fill in the blank",
+      }),
+    ]);
 
     expect(picked).toHaveLength(1);
     expect(picked[0].id).toBe("fill");
+  });
+
+  it("filters by quiz name and picks the priority item type for each KC", () => {
+    const picked = pickQuestions([
+      makeQuestion({
+        id: "other-quiz",
+        kc: "KC-01",
+        quizName: "Other Quiz",
+        type: "Debugging",
+      }),
+      makeQuestion({
+        id: "priority-carrier",
+        kc: "KC-01",
+        quizName: "Target Quiz",
+        type: "Code modification",
+        priority: "KC-01_Debugging the question",
+      }),
+      makeQuestion({
+        id: "priority-target",
+        kc: "KC-01",
+        quizName: "Target Quiz",
+        type: "Debugging",
+      }),
+    ], {
+      quizName: "Target Quiz",
+      targetCount: 1,
+    });
+
+    expect(picked).toHaveLength(1);
+    expect(picked[0].id).toBe("priority-target");
+  });
+
+  it("returns one item per KC in KC order without randomization", () => {
+    const picked = pickQuestions([
+      makeQuestion({ id: "kc02", kc: "KC-02", kcName: "KC 02" }),
+      makeQuestion({ id: "kc01", kc: "KC-01", kcName: "KC 01" }),
+      makeQuestion({ id: "kc03", kc: "KC-03", kcName: "KC 03" }),
+    ]);
+
+    expect(picked.map((question) => question.id)).toEqual(["kc01", "kc02", "kc03"]);
   });
 });

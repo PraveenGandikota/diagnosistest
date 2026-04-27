@@ -1,5 +1,5 @@
-// Edge function — generates a structured Python tutor report via Lovable AI tool calling.
-// Returns JSON: { summary, strengths[], improvements[], actionPlan[] }
+// Edge function - generates a structured improvement plan for the coding quiz.
+// Returns JSON: { summary, improvementPlan[], nextSteps[] }
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,12 +7,23 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+interface TopicBreakdown {
+  topic: string;
+  description: string;
+  correct: number;
+  total: number;
+  pct: number;
+  resourceTitle: string;
+  resourceUrl: string;
+}
+
 interface ReportPayload {
+  quizName: string;
   score: number;
   correct: number;
   total: number;
   timeTaken: string;
-  kcBreakdown: { kc: string; name: string; pct: number; correct: number; total: number }[];
+  topicBreakdown: TopicBreakdown[];
 }
 
 Deno.serve(async (req) => {
@@ -24,56 +35,69 @@ Deno.serve(async (req) => {
 
     const payload = (await req.json()) as ReportPayload;
 
-    const kcLines = payload.kcBreakdown
-      .map((k) => `- ${k.kc} ${k.name}: ${k.correct}/${k.total} (${k.pct}%)`)
+    const topicLines = payload.topicBreakdown
+      .map((topic) => {
+        const resourceLine = `${topic.resourceTitle} - ${topic.resourceUrl}`;
+        return `- ${topic.topic}: ${topic.correct}/${topic.total} (${topic.pct}%). ${topic.description} Resource: ${resourceLine}`;
+      })
       .join("\n");
 
     const systemPrompt =
-      "You are a senior Python tutor giving a focused, actionable code review. " +
-      "Be specific, name concrete KCs, and avoid filler. Each list item is one short sentence (under 22 words). " +
+      "You are a senior Python tutor writing a concise, professional improvement plan after a coding quiz. " +
+      "Do not mention KCs, knowledge concepts, or internal assessment labels. " +
+      "Use only the provided topic names. Keep the tone supportive, direct, and practical. " +
       "No markdown, no emojis. Use plain text only.";
 
-    const userPrompt = `Student results on the "Count Vowels" Python problem.
+    const userPrompt = `Student results on the "${payload.quizName}" coding quiz.
 
-Overall MCQ score: ${payload.score}% (${payload.correct}/${payload.total} correct)
+Overall score: ${payload.score}% (${payload.correct}/${payload.total} correct)
 Time taken: ${payload.timeTaken}
 
-Knowledge Concept performance:
-${kcLines}
+Topic performance:
+${topicLines}
 
-Generate a structured diagnosis report. Use the report tool. Constraints:
-- summary: 1-2 sentences, honest and encouraging.
-- strengths: 2-4 line items. Each names a specific KC the student demonstrated and why it matters.
-- improvements: 2-5 line items. Each names a weak KC, the typical mistake pattern, and the real-world bug it causes. Pick from the lowest-scoring KCs.
-- actionPlan: exactly 3 line items. Each is a concrete exercise with a time estimate (e.g., "Write 5 functions using counter accumulation — 20 min").`;
+Generate a structured improvement plan. Use the report tool. Constraints:
+- summary: 1-2 sentences, encouraging and honest, focused on what the learner should do next.
+- improvementPlan: 2-4 items. Each item must use one provided topic name, explain what needs revision, and give one concrete recommendation.
+- nextSteps: exactly 3 short action steps. Focus on revision and practice.
+- Do not mention KCs, percentages, or "knowledge concepts" in the text.
+- Do not invent new topic names.
+- Do not include URLs in the tool output; the frontend will attach the provided resources.`;
 
     const tools = [
       {
         type: "function",
         function: {
-          name: "diagnosis_report",
-          description: "Return a structured Python learning diagnosis report.",
+          name: "improvement_plan_report",
+          description: "Return a structured coding quiz improvement plan.",
           parameters: {
             type: "object",
             properties: {
-              summary: { type: "string", description: "One or two sentence overall summary." },
-              strengths: {
-                type: "array",
-                items: { type: "string" },
-                description: "What the student demonstrated mastery of. 2-4 short line items.",
+              summary: {
+                type: "string",
+                description: "One or two sentence overall summary.",
               },
-              improvements: {
+              improvementPlan: {
                 type: "array",
-                items: { type: "string" },
-                description: "Specific weaknesses with the mistake pattern. 2-5 short line items.",
+                items: {
+                  type: "object",
+                  properties: {
+                    topic: { type: "string" },
+                    observation: { type: "string" },
+                    recommendation: { type: "string" },
+                  },
+                  required: ["topic", "observation", "recommendation"],
+                  additionalProperties: false,
+                },
+                description: "Priority revision areas with clear recommendations.",
               },
-              actionPlan: {
+              nextSteps: {
                 type: "array",
                 items: { type: "string" },
-                description: "Exactly 3 concrete exercises with time estimates.",
+                description: "Exactly 3 concrete next steps.",
               },
             },
-            required: ["summary", "strengths", "improvements", "actionPlan"],
+            required: ["summary", "improvementPlan", "nextSteps"],
             additionalProperties: false,
           },
         },
@@ -93,7 +117,7 @@ Generate a structured diagnosis report. Use the report tool. Constraints:
           { role: "user", content: userPrompt },
         ],
         tools,
-        tool_choice: { type: "function", function: { name: "diagnosis_report" } },
+        tool_choice: { type: "function", function: { name: "improvement_plan_report" } },
       }),
     });
 
@@ -104,12 +128,12 @@ Generate a structured diagnosis report. Use the report tool. Constraints:
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted — add credits in Settings → Workspace → Usage." }), {
+        return new Response(JSON.stringify({ error: "AI credits exhausted - add credits in Settings > Workspace > Usage." }), {
           status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
+      const text = await response.text();
+      console.error("AI gateway error:", response.status, text);
       return new Response(JSON.stringify({ error: "AI gateway error" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -138,11 +162,11 @@ Generate a structured diagnosis report. Use the report tool. Constraints:
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (e) {
-    console.error("diagnose-report error:", e);
+  } catch (error) {
+    console.error("diagnose-report error:", error);
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

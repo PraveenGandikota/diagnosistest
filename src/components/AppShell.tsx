@@ -1,19 +1,24 @@
 import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Home, Brain, Code2, BarChart3, Lock, Moon, Sun, Terminal } from "lucide-react";
+import { Home, Brain, Code2, Lock, Moon, Sun, Terminal } from "lucide-react";
+import { useAdminAccess } from "@/lib/admin-access";
 import { storage } from "@/lib/storage";
 
-const items = [
+const publicItems = [
   { to: "/", label: "Home", icon: Home },
   { to: "/quiz", label: "Quiz", icon: Brain },
   { to: "/playground", label: "Playground", icon: Code2 },
-  { to: "/results", label: "Results", icon: BarChart3 },
+];
+
+const adminItems = [
   { to: "/admin", label: "Admin", icon: Lock },
 ];
 
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const [theme, setTheme] = useState<"dark" | "light">(() => storage.getTheme());
   const location = useLocation();
+  const { hasAccess } = useAdminAccess();
+  const items = hasAccess ? [...publicItems, ...adminItems] : publicItems;
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", theme === "light");

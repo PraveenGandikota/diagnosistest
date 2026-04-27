@@ -2,14 +2,13 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Code2, Brain, Zap, Sparkles } from "lucide-react";
 import { PyHighlight } from "@/components/PyHighlight";
 import { storage } from "@/lib/storage";
-import { ALL_KCS } from "@/lib/quiz-types";
+import { getTopicDisplayName } from "@/lib/quiz-types";
 
 const Home = () => {
   const submissions = storage.getSubmissions();
   const bank = storage.getQuestions();
-  const avgTime = submissions.length
-    ? Math.round(submissions.reduce((a, s) => a + s.durationSec, 0) / submissions.length)
-    : 0;
+  const quizCount = new Set(bank.map((question) => question.quizName || "Imported Quiz")).size;
+  const topicCount = new Set(bank.map((question) => getTopicDisplayName(question.kc, question.kcName))).size;
 
   return (
     <div className="min-h-screen px-6 py-10 md:px-12">
@@ -18,21 +17,21 @@ const Home = () => {
           <Sparkles className="h-3 w-3 text-primary" /> Python Learning Playground
         </div>
         <h1 className="mb-3 text-4xl font-bold tracking-tight md:text-5xl">
-          Master <span className="text-primary">countVowels</span> — one KC at a time.
+          Practice <span className="text-primary">real coding questions</span> with guided feedback.
         </h1>
         <p className="mb-8 max-w-2xl text-muted-foreground">
-          A timed KC-driven quiz that diagnoses exactly which Python concepts you've nailed and where you're slipping.
+          Take a focused Python quiz, review professional feedback after each answer, and finish with a practical improvement plan plus curated learning links.
         </p>
 
         <div className="mb-10 panel gradient-border p-6">
           <div className="mb-2 flex items-center gap-2 text-xs font-mono text-muted-foreground">
-            <Code2 className="h-4 w-4 text-primary" /> PROBLEM
+            <Code2 className="h-4 w-4 text-primary" /> SAMPLE CHALLENGE
           </div>
           <h2 className="mb-3 font-mono text-lg font-semibold">countVowels(s)</h2>
           <p className="mb-4 text-sm text-muted-foreground">
-            Given a string, count the number of vowels (a, e, i, o, u) — case-insensitive.
+            Given a string, count the number of vowels (a, e, i, o, u) in a case-insensitive way.
             <br />
-            Constraints: 1 ≤ s.length ≤ 10⁶
+            Constraints: 1 {"<="} s.length {"<="} 10^6
           </p>
           <PyHighlight
             code={`def countVowels(s: str) -> int:\n    """Return count of a/e/i/o/u in s, ignoring case."""\n    ...`}
@@ -56,16 +55,16 @@ const Home = () => {
 
         <div className="mb-12 grid grid-cols-2 gap-4 md:grid-cols-4">
           <Stat label="Questions in bank" value={bank.length} />
-          <Stat label="Knowledge Concepts" value={ALL_KCS.length} />
-          <Stat label="Avg completion" value={avgTime ? `${Math.floor(avgTime / 60)}m ${avgTime % 60}s` : "—"} />
+          <Stat label="Coding topics" value={topicCount} />
+          <Stat label="Active quizzes" value={quizCount} />
           <Stat label="Total submissions" value={submissions.length} />
         </div>
 
         <h3 className="mb-4 text-xl font-semibold">How it works</h3>
         <div className="grid gap-4 md:grid-cols-3">
-          <Step n={1} title="Answer KC-driven items" desc="One targeted item from every Knowledge Concept" icon={Brain} />
-          <Step n={2} title="AI Diagnosis" desc="Structured report on strengths and gaps" icon={Zap} />
-          <Step n={3} title="Practice in Playground" desc="Code countVowels in our IDE — anytime" icon={Code2} />
+          <Step n={1} title="Solve coding questions" desc="Work through practical Python questions one by one." icon={Brain} />
+          <Step n={2} title="Get detailed feedback" desc="See what you missed, what to revise, and why it matters." icon={Zap} />
+          <Step n={3} title="Revise with resources" desc="Open recommended references and return stronger for the next attempt." icon={Code2} />
         </div>
       </div>
     </div>
