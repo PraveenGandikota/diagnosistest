@@ -14,7 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      questions: {
+        Row: {
+          code: string
+          correct_idx: number
+          created_at: string
+          explanation: string
+          id: string
+          kc: string
+          kc_name: string
+          option_a: string
+          option_b: string
+          option_c: string
+          option_d: string
+          question: string
+          quiz_name: string
+          type: string
+          wrong_a: string
+          wrong_b: string
+          wrong_c: string
+        }
+        Insert: {
+          code?: string
+          correct_idx: number
+          created_at?: string
+          explanation?: string
+          id?: string
+          kc: string
+          kc_name: string
+          option_a: string
+          option_b: string
+          option_c: string
+          option_d: string
+          question: string
+          quiz_name?: string
+          type: string
+          wrong_a?: string
+          wrong_b?: string
+          wrong_c?: string
+        }
+        Update: {
+          code?: string
+          correct_idx?: number
+          created_at?: string
+          explanation?: string
+          id?: string
+          kc?: string
+          kc_name?: string
+          option_a?: string
+          option_b?: string
+          option_c?: string
+          option_d?: string
+          question?: string
+          quiz_name?: string
+          type?: string
+          wrong_a?: string
+          wrong_b?: string
+          wrong_c?: string
+        }
+        Relationships: []
+      }
+      submissions: {
+        Row: {
+          ai_report: string
+          answers: Json
+          created_at: string
+          duration_sec: number
+          id: string
+          kc_scores: Json
+          mcq_correct: number
+          mcq_total: number
+          quiz_name: string
+          score_pct: number
+          student_id: string
+          student_name: string
+          weakest_kc: string
+        }
+        Insert: {
+          ai_report?: string
+          answers?: Json
+          created_at?: string
+          duration_sec?: number
+          id?: string
+          kc_scores?: Json
+          mcq_correct?: number
+          mcq_total?: number
+          quiz_name?: string
+          score_pct?: number
+          student_id?: string
+          student_name?: string
+          weakest_kc?: string
+        }
+        Update: {
+          ai_report?: string
+          answers?: Json
+          created_at?: string
+          duration_sec?: number
+          id?: string
+          kc_scores?: Json
+          mcq_correct?: number
+          mcq_total?: number
+          quiz_name?: string
+          score_pct?: number
+          student_id?: string
+          student_name?: string
+          weakest_kc?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
