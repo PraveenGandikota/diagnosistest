@@ -1,104 +1,147 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Code2, Brain, Zap, Sparkles } from "lucide-react";
-import { PyHighlight } from "@/components/PyHighlight";
-import { storage } from "@/lib/storage";
-import { getTopicDisplayName } from "@/lib/quiz-types";
+import { ArrowRight, BookOpen, Code2, GraduationCap, ListChecks } from "lucide-react";
+import { fetchAllQuestions } from "@/lib/quiz-db";
+import type { Question } from "@/lib/quiz-types";
+
+interface CourseModule {
+  quizName: string;
+  questionCount: number;
+  topicCount: number;
+}
+
+const COURSE = {
+  id: "programming-fundamentals",
+  title: "Programming Fundamentals",
+  description: "Build a strong foundation in Python with bite-sized modules and instant feedback.",
+  icon: Code2,
+};
 
 const Home = () => {
-  const submissions = storage.getSubmissions();
-  const bank = storage.getQuestions();
-  const quizCount = new Set(bank.map((question) => question.quizName || "Imported Quiz")).size;
-  const topicCount = new Set(bank.map((question) => getTopicDisplayName(question.kc, question.kcName))).size;
+  const [modules, setModules] = useState<CourseModule[] | null>(null);
+  const [view, setView] = useState<"courses" | "modules">("courses");
+
+  useEffect(() => {
+    fetchAllQuestions().then((questions: Question[]) => {
+      const byQuiz = new Map<string, { count: number; topics: Set<string> }>();
+      questions.forEach((q) => {
+        const name = q.quizName || "General";
+        if (!byQuiz.has(name)) byQuiz.set(name, { count: 0, topics: new Set() });
+        const entry = byQuiz.get(name)!;
+        entry.count += 1;
+        entry.topics.add(q.kc);
+      });
+      const list: CourseModule[] = Array.from(byQuiz.entries())
+        .map(([quizName, v]) => ({ quizName, questionCount: v.count, topicCount: v.topics.size }))
+        .sort((a, b) => a.quizName.localeCompare(b.quizName));
+      setModules(list);
+    });
+  }, []);
+
+  const totalQuestions = modules?.reduce((s, m) => s + m.questionCount, 0) ?? 0;
+
+  if (view === "modules") {
+    return (
+      <div className="min-h-screen px-6 py-10 md:px-12">
+        <div className="mx-auto max-w-5xl">
+          <button
+            onClick={() => setView("courses")}
+            className="mb-4 text-sm text-muted-foreground hover:text-foreground"
+          >
+            ← Back to courses
+          </button>
+          <div className="mb-8 flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Code2 className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">{COURSE.title}</h1>
+              <p className="mt-1 text-muted-foreground">{COURSE.description}</p>
+            </div>
+          </div>
+
+          <h2 className="mb-4 text-lg font-semibold">Modules</h2>
+          {modules === null ? (
+            <div className="text-sm text-muted-foreground">Loading modules…</div>
+          ) : modules.length === 0 ? (
+            <div className="ide-card p-8 text-center">
+              <ListChecks className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                No modules available yet. An admin can upload questions in the Admin panel.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {modules.map((m, idx) => (
+                <Link
+                  key={m.quizName}
+                  to={`/quiz?module=${encodeURIComponent(m.quizName)}`}
+                  className="ide-card group p-5 transition-all hover:border-primary/50 hover:shadow-md"
+                >
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <span>Module {idx + 1}</span>
+                  </div>
+                  <h3 className="mb-2 text-lg font-semibold group-hover:text-primary">{m.quizName}</h3>
+                  <div className="mb-4 flex gap-3 text-xs text-muted-foreground">
+                    <span>{m.questionCount} question{m.questionCount === 1 ? "" : "s"}</span>
+                    <span>•</span>
+                    <span>{m.topicCount} topic{m.topicCount === 1 ? "" : "s"}</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
+                    Start module <ArrowRight className="h-4 w-4" />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen px-6 py-10 md:px-12">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1 text-xs font-mono text-muted-foreground">
-          <Sparkles className="h-3 w-3 text-primary" /> Python Learning Playground
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+          <GraduationCap className="h-3.5 w-3.5 text-primary" /> Learning Platform
         </div>
         <h1 className="mb-3 text-4xl font-bold tracking-tight md:text-5xl">
-          Practice <span className="text-primary">real coding questions</span> with guided feedback.
+          Pick a course to <span className="text-primary">start learning</span>.
         </h1>
-        <p className="mb-8 max-w-2xl text-muted-foreground">
-          Take a focused Python quiz, review professional feedback after each answer, and finish with a practical improvement plan plus curated learning links.
+        <p className="mb-10 max-w-2xl text-muted-foreground">
+          Each course is organised into modules. Take a module quiz, get personalised feedback, and track your progress.
         </p>
 
-        <div className="mb-10 panel gradient-border p-6">
-          <div className="mb-2 flex items-center gap-2 text-xs font-mono text-muted-foreground">
-            <Code2 className="h-4 w-4 text-primary" /> SAMPLE CHALLENGE
+        <h2 className="mb-4 text-lg font-semibold">Courses</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <button
+            onClick={() => setView("modules")}
+            className="ide-card group p-6 text-left transition-all hover:border-primary/50 hover:shadow-md"
+          >
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <COURSE.icon className="h-6 w-6" />
+            </div>
+            <h3 className="mb-2 text-xl font-semibold group-hover:text-primary">{COURSE.title}</h3>
+            <p className="mb-4 text-sm text-muted-foreground">{COURSE.description}</p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{modules?.length ?? "…"} modules · {totalQuestions} questions</span>
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
+                Open course <ArrowRight className="h-4 w-4" />
+              </span>
+            </div>
+          </button>
+
+          <div className="ide-card flex flex-col justify-center p-6 opacity-60">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <BookOpen className="h-6 w-6" />
+            </div>
+            <h3 className="mb-2 text-xl font-semibold">More courses coming soon</h3>
+            <p className="text-sm text-muted-foreground">Additional learning tracks will appear here.</p>
           </div>
-          <h2 className="mb-3 font-mono text-lg font-semibold">countVowels(s)</h2>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Given a string, count the number of vowels (a, e, i, o, u) in a case-insensitive way.
-            <br />
-            Constraints: 1 {"<="} s.length {"<="} 10^6
-          </p>
-          <PyHighlight
-            code={`def countVowels(s: str) -> int:\n    """Return count of a/e/i/o/u in s, ignoring case."""\n    ...`}
-          />
-        </div>
-
-        <div className="mb-12 flex flex-wrap gap-3">
-          <Link
-            to="/quiz"
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-glow)] transition-transform hover:scale-[1.02]"
-          >
-            Take the Quiz <ArrowRight className="h-4 w-4" />
-          </Link>
-          <Link
-            to="/playground"
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-panel px-5 py-3 text-sm font-semibold transition-colors hover:bg-card"
-          >
-            <Code2 className="h-4 w-4" /> Open Playground
-          </Link>
-        </div>
-
-        <div className="mb-12 grid grid-cols-2 gap-4 md:grid-cols-4">
-          <Stat label="Questions in bank" value={bank.length} />
-          <Stat label="Coding topics" value={topicCount} />
-          <Stat label="Active quizzes" value={quizCount} />
-          <Stat label="Total submissions" value={submissions.length} />
-        </div>
-
-        <h3 className="mb-4 text-xl font-semibold">How it works</h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Step n={1} title="Solve coding questions" desc="Work through practical Python questions one by one." icon={Brain} />
-          <Step n={2} title="Get detailed feedback" desc="See what you missed, what to revise, and why it matters." icon={Zap} />
-          <Step n={3} title="Revise with resources" desc="Open recommended references and return stronger for the next attempt." icon={Code2} />
         </div>
       </div>
     </div>
   );
 };
-
-const Stat = ({ label, value }: { label: string; value: number | string }) => (
-  <div className="ide-card p-4">
-    <div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
-    <div className="font-mono text-2xl font-semibold text-primary">{value}</div>
-  </div>
-);
-
-const Step = ({
-  n,
-  title,
-  desc,
-  icon: Icon,
-}: {
-  n: number;
-  title: string;
-  desc: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) => (
-  <div className="ide-card p-5">
-    <div className="mb-3 flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 font-mono text-sm font-bold text-primary">
-        {n}
-      </div>
-      <Icon className="h-5 w-5 text-muted-foreground" />
-    </div>
-    <h4 className="mb-1 font-semibold">{title}</h4>
-    <p className="text-sm text-muted-foreground">{desc}</p>
-  </div>
-);
 
 export default Home;
