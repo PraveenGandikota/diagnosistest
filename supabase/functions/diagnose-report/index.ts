@@ -34,8 +34,9 @@ Deno.serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     const payload = (await req.json()) as ReportPayload;
+    const topics = Array.isArray(payload?.topicBreakdown) ? payload.topicBreakdown : [];
 
-    const topicLines = payload.topicBreakdown
+    const topicLines = topics
       .map((topic) => {
         const resourceLine = `${topic.resourceTitle} - ${topic.resourceUrl}`;
         return `- ${topic.topic}: ${topic.correct}/${topic.total} (${topic.pct}%). ${topic.description} Resource: ${resourceLine}`;
