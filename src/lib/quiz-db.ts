@@ -35,7 +35,15 @@ function rowToQuestion(row: any): Question {
     (opt) => opt !== null && opt !== undefined,
   );
   const correctIdx = Math.max(0, Math.min(row.correct_idx ?? 0, options.length - 1));
-  const wrongAll = [row.wrong_a, row.wrong_b, row.wrong_c].map((w) => w || "Not quite.");
+  const wrongs = [row.wrong_a, row.wrong_b, row.wrong_c].map((w) => w || "Not quite.");
+  // Re-index wrongs by option position: the CSV stores 3 wrong diagnoses in the order of
+  // wrong options (skipping the correct one). Convert to an array indexed by option index
+  // so option shuffling stays correct.
+  const wrongDiagnosis = options.map((_, i) => {
+    if (i === correctIdx) return "";
+    const wrongIdx = i < correctIdx ? i : i - 1;
+    return wrongs[wrongIdx] ?? "Not quite.";
+  });
   return {
     id: row.id,
     quizName: row.quiz_name || "General",
@@ -47,7 +55,7 @@ function rowToQuestion(row: any): Question {
     options,
     correct: correctIdx,
     explanation: row.explanation || "",
-    wrongDiagnosis: wrongAll,
+    wrongDiagnosis,
   };
 }
 
@@ -108,6 +116,10 @@ export async function insertQuestions(rows: QuestionInsert[]) {
   return { count: rows.length, error };
 }
 
+export async function updateQuestion(id: string, row: QuestionInsert) {
+  return supabase.from("questions").update(row).eq("id", id);
+}
+
 export async function deleteQuestion(id: string) {
   return supabase.from("questions").delete().eq("id", id);
 }
@@ -136,6 +148,31 @@ export async function saveSubmission(sub: Omit<DBSubmission, "id" | "date">) {
   return { data, error };
 }
 
+function rowToSubmission(row: any): DBSubmission {
+  const kcScores = (row.kc_scores || {}) as Record<string, { correct: number; total: number }>;
+  const answers = (row.answers || []) as DBSubmissionAnswer[];
+  const missed = new Set<string>();
+  answers.forEach((answer) => {
+    if (!answer.correct) missed.add(answer.kcName || answer.kc);
+  });
+
+  return {
+    id: row.id,
+    studentName: row.student_name,
+    quizName: row.quiz_name,
+    date: row.created_at,
+    durationSec: row.duration_sec,
+    mcqCorrect: row.mcq_correct,
+    mcqTotal: row.mcq_total,
+    scorePct: row.score_pct,
+    weakestKC: row.weakest_kc || "--",
+    missedKCs: Array.from(missed),
+    kcScores,
+    aiReport: row.ai_report || "",
+    answers,
+  };
+}
+
 export async function fetchSubmissions(): Promise<DBSubmission[]> {
   const { data, error } = await supabase
     .from("submissions")
@@ -145,29 +182,25 @@ export async function fetchSubmissions(): Promise<DBSubmission[]> {
     console.error(error);
     return [];
   }
-  return (data || []).map((row: any) => {
-    const kcScores = (row.kc_scores || {}) as Record<string, { correct: number; total: number }>;
-    const answers = (row.answers || []) as DBSubmissionAnswer[];
-    const missed = new Set<string>();
-    answers.forEach((a) => {
-      if (!a.correct) missed.add(a.kcName || a.kc);
-    });
-    return {
-      id: row.id,
-      studentName: row.student_name,
-      quizName: row.quiz_name,
-      date: row.created_at,
-      durationSec: row.duration_sec,
-      mcqCorrect: row.mcq_correct,
-      mcqTotal: row.mcq_total,
-      scorePct: row.score_pct,
-      weakestKC: row.weakest_kc || "--",
-      missedKCs: Array.from(missed),
-      kcScores,
-      aiReport: row.ai_report || "",
-      answers,
-    };
-  });
+  return (data || []).map(rowToSubmission);
+}
+
+export async function fetchSubmissionsByStudentName(studentName: string): Promise<DBSubmission[]> {
+  const trimmedName = studentName.trim();
+  if (!trimmedName) return [];
+
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("*")
+    .ilike("student_name", trimmedName)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return [];
+  }
+
+  return (data || []).map(rowToSubmission);
 }
 
 export async function deleteSubmission(id: string) {

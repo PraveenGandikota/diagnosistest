@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, ExternalLink, Sparkles, X } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Check, ChevronDown, ChevronRight, ExternalLink, RotateCcw, Sparkles, X } from "lucide-react";
 import { useAdminAccess } from "@/lib/admin-access";
 import { useQuiz } from "@/lib/quiz-store";
 import {
@@ -20,6 +20,7 @@ interface AIReport {
 }
 
 const Result = () => {
+  const navigate = useNavigate();
   const { session, reset } = useQuiz();
   const { hasAccess } = useAdminAccess();
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
@@ -310,6 +311,16 @@ const Result = () => {
           <Link to="/" onClick={() => reset()} className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90">
             Back to courses
           </Link>
+          <button
+            onClick={() => {
+              const moduleName = session.quizName;
+              reset();
+              navigate(`/quiz?module=${encodeURIComponent(moduleName)}`);
+            }}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-muted/40"
+          >
+            <RotateCcw className="h-4 w-4" /> Retake quiz
+          </button>
           {hasAccess && (
             <Link to="/admin" className="rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-muted/40">
               Open admin dashboard

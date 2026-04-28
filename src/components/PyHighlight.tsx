@@ -21,13 +21,19 @@ interface Props {
 
 export const PyHighlight = ({ code, withLineNumbers = true, className = "" }: Props) => {
   const lines = code.replace(/\t/g, "    ").split("\n");
+  // The terminal background is always dark, so we set an explicit light default text
+  // colour here. Using `text-foreground` collides with the dark foreground in light mode,
+  // which makes plain identifiers (variables, function names) render invisible.
   return (
-    <pre className={`overflow-x-auto rounded-md bg-[hsl(var(--terminal-bg))] p-4 text-sm leading-relaxed text-foreground ${className}`}>
+    <pre
+      className={`overflow-x-auto rounded-md bg-[hsl(var(--terminal-bg))] p-4 text-sm leading-relaxed ${className}`}
+      style={{ color: "hsl(210 15% 92%)" }}
+    >
       <code className="font-mono">
         {lines.map((line, idx) => (
           <div key={idx} className="flex">
             {withLineNumbers && (
-              <span className="mr-4 inline-block w-6 select-none text-right text-muted-foreground">
+              <span className="mr-4 inline-block w-6 select-none text-right" style={{ color: "hsl(215 16% 60%)" }}>
                 {idx + 1}
               </span>
             )}

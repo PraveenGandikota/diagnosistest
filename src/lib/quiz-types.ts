@@ -22,7 +22,7 @@ export interface Question {
   options: string[];
   correct: number;
   explanation: string;
-  wrongDiagnosis: string[]; // in option order, excluding the correct choice
+  wrongDiagnosis: string[]; // indexed by option position; entry at the correct index is "" and unused
 }
 
 export const KC_NAMES: Record<KCId, string> = {

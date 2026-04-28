@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Download, Eye, FileDown, LogOut, Trash2, Upload } from "lucide-react";
+import { Download, Eye, FileDown, LogOut, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { AdminAccessGate } from "@/components/AdminAccessGate";
+import { QuestionEditorDialog } from "@/components/QuestionEditorDialog";
 import {
   fetchAllQuestions, fetchSubmissions, deleteSubmission as deleteSubDb,
   insertQuestions, deleteQuestion as deleteQuestionDb, deleteQuizByName,
@@ -242,6 +243,8 @@ const Bank = ({ refreshKey, onChange }: { refreshKey: number; onChange: () => vo
   const [questions, setQuestions] = useState<Question[]>([]);
   const [filter, setFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -266,6 +269,16 @@ const Bank = ({ refreshKey, onChange }: { refreshKey: number; onChange: () => vo
     onChange();
   };
 
+  const openAddDialog = () => {
+    setEditingQuestion(null);
+    setEditorOpen(true);
+  };
+
+  const openEditDialog = (question: Question) => {
+    setEditingQuestion(question);
+    setEditorOpen(true);
+  };
+
   if (loading) return <div className="text-sm text-muted-foreground">Loading…</div>;
 
   return (
@@ -283,7 +296,15 @@ const Bank = ({ refreshKey, onChange }: { refreshKey: number; onChange: () => vo
             </button>
           )}
         </div>
-        <div className="text-xs text-muted-foreground">{filtered.length} question{filtered.length === 1 ? "" : "s"}</div>
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-muted-foreground">{filtered.length} question{filtered.length === 1 ? "" : "s"}</div>
+          <button
+            onClick={openAddDialog}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add question
+          </button>
+        </div>
       </div>
 
       <div className="panel overflow-hidden">
@@ -300,7 +321,7 @@ const Bank = ({ refreshKey, onChange }: { refreshKey: number; onChange: () => vo
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No questions in the database yet. Use the Upload CSV tab.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No questions in the database yet. Add one here or use the Upload CSV tab.</td></tr>
             ) : filtered.map((q) => (
               <tr key={q.id} className="border-t border-border hover:bg-muted/20">
                 <td className="px-4 py-3 text-xs">{q.quizName}</td>
@@ -309,6 +330,12 @@ const Bank = ({ refreshKey, onChange }: { refreshKey: number; onChange: () => vo
                 <td className="px-4 py-3 text-xs max-w-md truncate">{q.question}</td>
                 <td className="px-4 py-3 text-xs text-success">{String.fromCharCode(65 + q.correct)}</td>
                 <td className="px-4 py-3 text-right">
+                  <button
+                    onClick={() => openEditDialog(q)}
+                    className="mr-2 inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted/40"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
                   <button onClick={() => handleDeleteQ(q.id)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-destructive hover:bg-destructive/10">
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -318,6 +345,14 @@ const Bank = ({ refreshKey, onChange }: { refreshKey: number; onChange: () => vo
           </tbody>
         </table>
       </div>
+
+      <QuestionEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        onSaved={onChange}
+        question={editingQuestion}
+        seedModule={filter === "ALL" ? undefined : filter}
+      />
     </div>
   );
 };

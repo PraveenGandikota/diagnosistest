@@ -218,7 +218,7 @@ export function buildQuestionFeedback(question: Question, selectedIdx: number, i
   });
   const rawRemark = isCorrect
     ? question.explanation
-    : question.wrongDiagnosis[selectedIdx < question.correct ? selectedIdx : selectedIdx - 1] ?? question.explanation;
+    : (question.wrongDiagnosis[selectedIdx] || question.explanation);
 
   const professionalRemark = professionalizeRemark(rawRemark, topic.topic, isCorrect);
   const conceptSummary = topic.description || "This question checks a practical Python coding concept that is worth revisiting carefully.";

@@ -123,7 +123,8 @@ export function pickQuestions(bank: Question[], options: PickQuestionsOptions = 
   for (const kc of ALL_KCS) {
     const questions = byKC.get(kc);
     if (!questions || questions.length === 0) continue;
-    picked.push(selectQuestionForKC(questions, manualPriorityByKC.get(kc)));
+    const chosen = selectQuestionForKC(questions, manualPriorityByKC.get(kc));
+    picked.push(shuffleQuestionOptions(chosen));
   }
 
   if (typeof targetCount === "number") {
@@ -132,17 +133,48 @@ export function pickQuestions(bank: Question[], options: PickQuestionsOptions = 
   return picked;
 }
 
+// Pick a random question for the KC, preferring questions whose type matches the
+// manual priority (if any) or the configured KC preference. Among the best-matching
+// candidates, choose randomly so each attempt surfaces a different question.
 function selectQuestionForKC(questions: Question[], priorityText: string | undefined): Question {
   const desiredType = getPriorityQuestionType(priorityText);
 
-  return [...questions].sort((a, b) => {
-    const priorityDelta = getPriorityRank(a, desiredType) - getPriorityRank(b, desiredType);
-    if (priorityDelta !== 0) return priorityDelta;
-    return getKCTypePriority(a.kc, a.type) - getKCTypePriority(b.kc, b.type);
-  })[0];
+  if (desiredType) {
+    const matching = questions.filter(
+      (q) => normalizeQuestionType(q.type) === desiredType,
+    );
+    if (matching.length > 0) return randomFrom(matching);
+  }
+
+  // Group by the KC type preference rank, then randomly pick from the best-ranked group.
+  const byRank = new Map<number, Question[]>();
+  for (const q of questions) {
+    const rank = getKCTypePriority(q.kc, q.type);
+    if (!byRank.has(rank)) byRank.set(rank, []);
+    byRank.get(rank)!.push(q);
+  }
+  const bestRank = Math.min(...byRank.keys());
+  return randomFrom(byRank.get(bestRank)!);
 }
 
-function getPriorityRank(question: Question, desiredType: ReturnType<typeof getPriorityQuestionType>): number {
-  if (!desiredType) return 0;
-  return normalizeQuestionType(question.type) === desiredType ? 0 : 1;
+function randomFrom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function shuffleQuestionOptions(question: Question): Question {
+  const n = question.options.length;
+  if (n <= 1) return question;
+
+  const order = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+
+  return {
+    ...question,
+    options: order.map((i) => question.options[i]),
+    correct: order.indexOf(question.correct),
+    wrongDiagnosis: order.map((i) => question.wrongDiagnosis[i] ?? ""),
+  };
 }
