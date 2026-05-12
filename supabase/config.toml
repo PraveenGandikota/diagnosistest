@@ -1,4 +1,4 @@
-project_id = "qaxouthoqoltdgibtlci"
+project_id = "YOUR_SUPABASE_PROJECT_ID"
 
 [functions.diagnose-report]
 verify_jwt = false

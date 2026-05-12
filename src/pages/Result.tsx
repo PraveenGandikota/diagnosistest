@@ -13,6 +13,7 @@ import {
 } from "@/lib/student-feedback";
 import { saveSubmission } from "@/lib/quiz-db";
 import { useStudentSession } from "@/lib/student-session";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/config";
 
 interface AIReport {
   summary: string;
@@ -74,12 +75,12 @@ const Result = () => {
 
     (async () => {
       try {
-        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/diagnose-report`;
+        const url = `${SUPABASE_URL}/functions/v1/diagnose-report`;
         const response = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
           },
           body: JSON.stringify(payload),
         });
