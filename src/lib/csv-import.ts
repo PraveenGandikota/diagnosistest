@@ -29,26 +29,30 @@ function norm(h: string): string {
   return h.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-const COLUMN_ALIASES: Record<string, string[]> = {
-  quiz_name: ["quiz_name", "quizname", "quiz", "module", "module_name"],
-  kc: ["kc", "kc_id", "kcid", "topic_id", "topicid"],
-  kc_name: ["kc_name", "kcname", "topic", "topic_name", "topicname"],
-  type: ["type", "question_type", "questiontype", "item_category"],
-  question: ["question", "question_text", "questiontext", "item"],
+const Q_ALIASES: Record<string, string[]> = {
+  skill: ["skill", "skill_name", "track"],
+  level: ["level", "level_name"],
+  quiz_number: ["quiz_number", "quiznumber", "quiz", "quiz_no", "quiz_id"],
+  kc: ["kc", "kc_id", "kcid", "kc_diagnosis", "knowledge_component"],
+  topic: ["topic", "topic_name"],
+  sub_topic: ["sub_topic", "subtopic", "sub_topic_name"],
+  type: ["type", "question_type"],
+  question: ["question", "question_text", "generated_diagnosis_question"],
   code: ["code", "code_snippet"],
-  option_a: ["option_a", "optiona", "a"],
-  option_b: ["option_b", "optionb", "b"],
-  option_c: ["option_c", "optionc", "c"],
-  option_d: ["option_d", "optiond", "d"],
-  correct_idx: ["correct_idx", "correctidx", "correct", "correct_option", "answer"],
-  explanation: ["explanation", "rationale", "kc_description", "topic_description"],
-  wrong_a: ["wrong_a", "wronga", "diagnosis_a", "diagnosisa"],
-  wrong_b: ["wrong_b", "wrongb", "diagnosis_b", "diagnosisb"],
-  wrong_c: ["wrong_c", "wrongc", "diagnosis_c", "diagnosisc"],
+  option_a: ["option_a", "a"],
+  option_b: ["option_b", "b"],
+  option_c: ["option_c", "c"],
+  option_d: ["option_d", "d"],
+  correct: ["correct_option", "correct", "correct_idx", "answer"],
+  wrong_a: ["option_a_diagnosis", "wrong_a_diagnosis", "wrong_a", "diagnosis_a"],
+  wrong_b: ["option_b_diagnosis", "wrong_b_diagnosis", "wrong_b", "diagnosis_b"],
+  wrong_c: ["option_c_diagnosis", "wrong_c_diagnosis", "wrong_c", "diagnosis_c"],
+  wrong_d: ["option_d_diagnosis", "wrong_d_diagnosis", "wrong_d", "diagnosis_d"],
+  explanation: ["explanation", "rationale"],
 };
 
-function findIndex(headers: string[], target: string): number {
-  const aliases = COLUMN_ALIASES[target] || [target];
+function findIndex(headers: string[], key: string): number {
+  const aliases = Q_ALIASES[key] || [key];
   for (let i = 0; i < headers.length; i++) {
     const h = norm(headers[i]);
     if (aliases.some((a) => norm(a) === h)) return i;
@@ -56,32 +60,36 @@ function findIndex(headers: string[], target: string): number {
   return -1;
 }
 
-function parseCorrectIdx(value: string): number {
-  const trimmed = (value || "").trim();
-  if (!trimmed) return 0;
-  const upper = trimmed.toUpperCase();
-  const letterMap: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
-  if (letterMap[upper] !== undefined) return letterMap[upper];
-  const num = parseInt(trimmed, 10);
-  return Number.isFinite(num) ? num : 0;
+function parseCorrect(value: string): number {
+  const t = (value || "").trim().toUpperCase();
+  if (!t) return 0;
+  const map: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
+  if (map[t] !== undefined) return map[t];
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export interface ParsedQuestionRow extends QuestionInsert {
+  _skillName: string;
+  _levelName: string;
 }
 
 export interface ParseResult {
-  rows: QuestionInsert[];
+  rows: ParsedQuestionRow[];
   errors: string[];
 }
 
-export function parseQuestionCsv(text: string, defaultQuizName = "Imported Quiz"): ParseResult {
+export function parseQuestionCsv(text: string): ParseResult {
   const matrix = parseCsv(text);
-  const errors: string[] = [];
-  if (matrix.length < 2) {
-    return { rows: [], errors: ["CSV must contain a header row and at least one question."] };
-  }
+  if (matrix.length < 2) return { rows: [], errors: ["CSV must contain a header row and at least one question."] };
   const headers = matrix[0];
   const idx = {
-    quiz_name: findIndex(headers, "quiz_name"),
+    skill: findIndex(headers, "skill"),
+    level: findIndex(headers, "level"),
+    quiz_number: findIndex(headers, "quiz_number"),
     kc: findIndex(headers, "kc"),
-    kc_name: findIndex(headers, "kc_name"),
+    topic: findIndex(headers, "topic"),
+    sub_topic: findIndex(headers, "sub_topic"),
     type: findIndex(headers, "type"),
     question: findIndex(headers, "question"),
     code: findIndex(headers, "code"),
@@ -89,29 +97,40 @@ export function parseQuestionCsv(text: string, defaultQuizName = "Imported Quiz"
     option_b: findIndex(headers, "option_b"),
     option_c: findIndex(headers, "option_c"),
     option_d: findIndex(headers, "option_d"),
-    correct_idx: findIndex(headers, "correct_idx"),
-    explanation: findIndex(headers, "explanation"),
+    correct: findIndex(headers, "correct"),
     wrong_a: findIndex(headers, "wrong_a"),
     wrong_b: findIndex(headers, "wrong_b"),
     wrong_c: findIndex(headers, "wrong_c"),
+    wrong_d: findIndex(headers, "wrong_d"),
+    explanation: findIndex(headers, "explanation"),
   };
 
-  const required: (keyof typeof idx)[] = ["question", "option_a", "option_b", "correct_idx"];
-  for (const r of required) {
+  const errors: string[] = [];
+  for (const r of ["skill", "level", "question", "option_a", "option_b", "correct"] as const) {
     if (idx[r] === -1) errors.push(`Missing required column: ${r}`);
   }
   if (errors.length > 0) return { rows: [], errors };
 
-  const rows: QuestionInsert[] = [];
+  const rows: ParsedQuestionRow[] = [];
   for (let r = 1; r < matrix.length; r++) {
     const cells = matrix[r];
     const get = (i: number) => (i >= 0 && i < cells.length ? (cells[i] || "").trim() : "");
     const question = get(idx.question);
     if (!question) continue;
+    const skillName = get(idx.skill);
+    const levelName = get(idx.level) || "L1";
+    const correctIdx = parseCorrect(get(idx.correct));
+    // 4 wrong-diagnosis columns: skip the one matching the correct option.
+    const allWrongs = [get(idx.wrong_a), get(idx.wrong_b), get(idx.wrong_c), get(idx.wrong_d)];
+    const wrongs = allWrongs.filter((_, i) => i !== correctIdx);
     rows.push({
-      quiz_name: get(idx.quiz_name) || defaultQuizName,
-      kc: get(idx.kc) || "KC-01",
-      kc_name: get(idx.kc_name) || "Python fundamentals",
+      _skillName: skillName,
+      _levelName: levelName,
+      quiz_name: `${skillName} - ${levelName} - Quiz ${get(idx.quiz_number) || 1}`,
+      kc: get(idx.kc) || "KC",
+      kc_name: get(idx.topic) || get(idx.kc) || "Topic",
+      topic: get(idx.topic),
+      sub_topic: get(idx.sub_topic),
       type: get(idx.type) || "Multiple-choice (MCQ)",
       question,
       code: get(idx.code),
@@ -119,11 +138,70 @@ export function parseQuestionCsv(text: string, defaultQuizName = "Imported Quiz"
       option_b: get(idx.option_b),
       option_c: get(idx.option_c),
       option_d: get(idx.option_d),
-      correct_idx: parseCorrectIdx(get(idx.correct_idx)),
+      correct_idx: correctIdx,
       explanation: get(idx.explanation),
-      wrong_a: get(idx.wrong_a),
-      wrong_b: get(idx.wrong_b),
-      wrong_c: get(idx.wrong_c),
+      wrong_a: wrongs[0] || "",
+      wrong_b: wrongs[1] || "",
+      wrong_c: wrongs[2] || "",
+      quiz_number: parseInt(get(idx.quiz_number), 10) || 1,
+    });
+  }
+  return { rows, errors };
+}
+
+// ---------- Students CSV ----------
+
+const S_ALIASES: Record<string, string[]> = {
+  campus: ["campus", "campus_name", "centre", "center"],
+  student_id: ["student_id", "studentid", "id", "user_id"],
+  name: ["name", "student_name", "full_name"],
+  email: ["email", "email_address"],
+};
+
+function findStudentIdx(headers: string[], key: string): number {
+  const aliases = S_ALIASES[key] || [key];
+  for (let i = 0; i < headers.length; i++) {
+    const h = norm(headers[i]);
+    if (aliases.some((a) => norm(a) === h)) return i;
+  }
+  return -1;
+}
+
+export interface ParsedStudentRow {
+  _campusName: string;
+  student_id: string;
+  name: string;
+  email: string | null;
+}
+
+export function parseStudentCsv(text: string): { rows: ParsedStudentRow[]; errors: string[] } {
+  const matrix = parseCsv(text);
+  if (matrix.length < 2) return { rows: [], errors: ["CSV must contain a header row and at least one student."] };
+  const headers = matrix[0];
+  const idx = {
+    campus: findStudentIdx(headers, "campus"),
+    student_id: findStudentIdx(headers, "student_id"),
+    name: findStudentIdx(headers, "name"),
+    email: findStudentIdx(headers, "email"),
+  };
+  const errors: string[] = [];
+  for (const r of ["campus", "student_id", "name"] as const) {
+    if (idx[r] === -1) errors.push(`Missing required column: ${r}`);
+  }
+  if (errors.length > 0) return { rows: [], errors };
+
+  const rows: ParsedStudentRow[] = [];
+  for (let r = 1; r < matrix.length; r++) {
+    const cells = matrix[r];
+    const get = (i: number) => (i >= 0 && i < cells.length ? (cells[i] || "").trim() : "");
+    const studentId = get(idx.student_id);
+    const name = get(idx.name);
+    if (!studentId || !name) continue;
+    rows.push({
+      _campusName: get(idx.campus),
+      student_id: studentId,
+      name,
+      email: get(idx.email) || null,
     });
   }
   return { rows, errors };
