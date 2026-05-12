@@ -12,6 +12,7 @@ import {
   type ImprovementReport,
 } from "@/lib/student-feedback";
 import { saveSubmission } from "@/lib/quiz-db";
+import { useStudentSession } from "@/lib/student-session";
 
 interface AIReport {
   summary: string;
