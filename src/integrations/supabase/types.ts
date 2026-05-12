@@ -14,6 +14,62 @@ export type Database = {
   }
   public: {
     Tables: {
+      campuses: {
+        Row: {
+          admin_access_code: string
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          admin_access_code: string
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          admin_access_code?: string
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      levels: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          skill_id: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          skill_id: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          skill_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "levels_skill_id_fkey"
+            columns: ["skill_id"]
+            isOneToOne: false
+            referencedRelation: "skills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       questions: {
         Row: {
           code: string
@@ -23,12 +79,17 @@ export type Database = {
           id: string
           kc: string
           kc_name: string
+          level_id: string | null
           option_a: string
           option_b: string
           option_c: string
           option_d: string
           question: string
           quiz_name: string
+          quiz_number: number
+          skill_id: string | null
+          sub_topic: string
+          topic: string
           type: string
           wrong_a: string
           wrong_b: string
@@ -42,12 +103,17 @@ export type Database = {
           id?: string
           kc: string
           kc_name: string
+          level_id?: string | null
           option_a: string
           option_b: string
           option_c: string
           option_d: string
           question: string
           quiz_name?: string
+          quiz_number?: number
+          skill_id?: string | null
+          sub_topic?: string
+          topic?: string
           type: string
           wrong_a?: string
           wrong_b?: string
@@ -61,66 +127,189 @@ export type Database = {
           id?: string
           kc?: string
           kc_name?: string
+          level_id?: string | null
           option_a?: string
           option_b?: string
           option_c?: string
           option_d?: string
           question?: string
           quiz_name?: string
+          quiz_number?: number
+          skill_id?: string | null
+          sub_topic?: string
+          topic?: string
           type?: string
           wrong_a?: string
           wrong_b?: string
           wrong_c?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "questions_level_id_fkey"
+            columns: ["level_id"]
+            isOneToOne: false
+            referencedRelation: "levels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "questions_skill_id_fkey"
+            columns: ["skill_id"]
+            isOneToOne: false
+            referencedRelation: "skills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      skills: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
         Relationships: []
+      }
+      students: {
+        Row: {
+          campus_id: string
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          student_id: string
+        }
+        Insert: {
+          campus_id: string
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          student_id: string
+        }
+        Update: {
+          campus_id?: string
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "students_campus_id_fkey"
+            columns: ["campus_id"]
+            isOneToOne: false
+            referencedRelation: "campuses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       submissions: {
         Row: {
           ai_report: string
           answers: Json
+          campus_id: string | null
           created_at: string
           duration_sec: number
           id: string
           kc_scores: Json
+          level_id: string | null
           mcq_correct: number
           mcq_total: number
           quiz_name: string
+          quiz_number: number
           score_pct: number
+          skill_id: string | null
           student_id: string
           student_name: string
+          student_uuid: string | null
           weakest_kc: string
         }
         Insert: {
           ai_report?: string
           answers?: Json
+          campus_id?: string | null
           created_at?: string
           duration_sec?: number
           id?: string
           kc_scores?: Json
+          level_id?: string | null
           mcq_correct?: number
           mcq_total?: number
           quiz_name?: string
+          quiz_number?: number
           score_pct?: number
+          skill_id?: string | null
           student_id?: string
           student_name?: string
+          student_uuid?: string | null
           weakest_kc?: string
         }
         Update: {
           ai_report?: string
           answers?: Json
+          campus_id?: string | null
           created_at?: string
           duration_sec?: number
           id?: string
           kc_scores?: Json
+          level_id?: string | null
           mcq_correct?: number
           mcq_total?: number
           quiz_name?: string
+          quiz_number?: number
           score_pct?: number
+          skill_id?: string | null
           student_id?: string
           student_name?: string
+          student_uuid?: string | null
           weakest_kc?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "submissions_campus_id_fkey"
+            columns: ["campus_id"]
+            isOneToOne: false
+            referencedRelation: "campuses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_level_id_fkey"
+            columns: ["level_id"]
+            isOneToOne: false
+            referencedRelation: "levels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_skill_id_fkey"
+            columns: ["skill_id"]
+            isOneToOne: false
+            referencedRelation: "skills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_student_uuid_fkey"
+            columns: ["student_uuid"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

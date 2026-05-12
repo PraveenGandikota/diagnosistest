@@ -1,76 +1,52 @@
-// Sample CSV template for question uploads.
-// Headers map directly to Supabase `questions` table columns.
+// CSV templates for Super Admin uploads.
 
-export const SAMPLE_CSV_HEADERS = [
-  "quiz_name",
-  "kc",
-  "kc_name",
-  "type",
-  "question",
-  "code",
-  "option_a",
-  "option_b",
-  "option_c",
-  "option_d",
-  "correct_idx",
+const QUESTION_HEADERS = [
+  "skill", "level", "quiz_number",
+  "kc", "topic", "sub_topic", "type",
+  "question", "code",
+  "option_a", "option_b", "option_c", "option_d",
+  "correct_option",
+  "wrong_a_diagnosis", "wrong_b_diagnosis", "wrong_c_diagnosis",
   "explanation",
-  "wrong_a",
-  "wrong_b",
-  "wrong_c",
-] as const;
+];
 
-const SAMPLE_ROWS: string[][] = [
+const QUESTION_SAMPLE: string[][] = [
   [
-    "Module 1: Variables & Types",
-    "KC-01",
-    "Variables and Assignment",
-    "Multiple-choice (MCQ)",
-    "Which statement correctly assigns the value 10 to a variable named x?",
-    "",
-    "x = 10",
-    "10 = x",
-    "x := 10",
-    "let x = 10",
-    "0",
-    "In Python, variables are assigned using the = operator with the variable name on the left.",
-    "Assignment direction is variable on the left, value on the right.",
-    ":= is the walrus operator, used inside expressions, not for normal assignment.",
-    "Python does not use the let keyword.",
+    "Computational Thinking", "L1", "1",
+    "KC-01", "Decomposition", "Breaking down a problem", "Multiple-choice (MCQ)",
+    "Which of these best describes decomposition?", "",
+    "Breaking a problem into smaller parts",
+    "Finding the same pattern in different problems",
+    "Removing irrelevant detail",
+    "Writing step-by-step instructions",
+    "A",
+    "Correct — that is pattern recognition.",
+    "That is abstraction.",
+    "That is algorithm design.",
+    "Decomposition is the process of breaking a complex problem into smaller, manageable parts.",
   ],
   [
-    "Module 1: Variables & Types",
-    "KC-02",
-    "Data Types",
-    "Multiple-choice (MCQ)",
-    "What is the type of the value 3.14 in Python?",
-    "",
-    "int",
-    "float",
-    "str",
-    "bool",
-    "1",
-    "Numbers with a decimal point are float in Python.",
-    "int is for whole numbers without a decimal point.",
-    "str is for text wrapped in quotes.",
-    "bool only stores True or False.",
+    "Computational Thinking", "L1", "2",
+    "KC-02", "Pattern Recognition", "Spotting similarities", "Multiple-choice (MCQ)",
+    "Pattern recognition helps you...", "",
+    "Use the same solution for similar problems",
+    "Hide implementation details",
+    "Decompose a problem into subproblems",
+    "Translate code to another language",
+    "A",
+    "That is abstraction.",
+    "That is decomposition.",
+    "Translation is unrelated.",
+    "Pattern recognition lets us reuse solutions across similar problems.",
   ],
-  [
-    "Module 2: Control Flow",
-    "KC-03",
-    "If/Else Statements",
-    "Debugging",
-    "What does this code print?",
-    "x = 5\nif x > 3:\n    print('big')\nelse:\n    print('small')",
-    "big",
-    "small",
-    "Error",
-    "Nothing",
-    "0",
-    "Since 5 > 3 is True, the if branch runs and prints 'big'.",
-    "The else branch only runs when the condition is False.",
-    "The code is syntactically valid, no error occurs.",
-    "A print statement always produces output.",
-  ],
+];
+
+const STUDENT_HEADERS = ["campus", "student_id", "name", "email"];
+
+const STUDENT_SAMPLE: string[][] = [
+  ["Bangalore Main", "GR-2024-001", "Aarav Sharma", "aarav@example.com"],
+  ["Bangalore Main", "GR-2024-002", "Priya Iyer", "priya@example.com"],
+  ["Hyderabad", "GR-2024-101", "Rohit Verma", "rohit@example.com"],
 ];
 
 function escapeCsvCell(value: string): string {
@@ -79,22 +55,26 @@ function escapeCsvCell(value: string): string {
   return str;
 }
 
-export function buildSampleCsv(): string {
-  const lines = [SAMPLE_CSV_HEADERS.join(",")];
-  for (const row of SAMPLE_ROWS) {
-    lines.push(row.map(escapeCsvCell).join(","));
-  }
-  return lines.join("\n");
+function buildCsv(headers: string[], rows: string[][]): string {
+  return [headers.join(","), ...rows.map((r) => r.map(escapeCsvCell).join(","))].join("\n");
 }
 
-export function downloadSampleCsv() {
-  const blob = new Blob([buildSampleCsv()], { type: "text/csv;charset=utf-8" });
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = "quiz_questions_template.csv";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+export function downloadQuestionTemplate() {
+  downloadCsv("questions_template.csv", buildCsv(QUESTION_HEADERS, QUESTION_SAMPLE));
+}
+
+export function downloadStudentTemplate() {
+  downloadCsv("students_template.csv", buildCsv(STUDENT_HEADERS, STUDENT_SAMPLE));
+}
+
+// Back-compat alias used by old Admin code path.
+export const downloadSampleCsv = downloadQuestionTemplate;

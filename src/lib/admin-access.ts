@@ -1,59 +1,72 @@
 import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
-const ADMIN_ACCESS_CODE = "8096";
-const ADMIN_ACCESS_KEY = "grit_admin_access";
-const ADMIN_ACCESS_EVENT = "grit-admin-access-change";
+const SUPER_ADMIN_CODE = "8096";
+const KEY = "diagnostic_admin_session";
+const EVENT = "diagnostic-admin-access-change";
 
-function emitAdminAccessChange() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(ADMIN_ACCESS_EVENT));
+export interface AdminSession {
+  role: "super" | "campus";
+  campusId: string | null;
+  campusName: string | null;
 }
 
-export function hasAdminAccess(): boolean {
-  if (typeof window === "undefined") return false;
-  return sessionStorage.getItem(ADMIN_ACCESS_KEY) === "granted";
+function emit() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(EVENT));
 }
 
-export function submitAdminAccessCode(code: string): boolean {
-  const isValid = code.trim() === ADMIN_ACCESS_CODE;
-  if (!isValid || typeof window === "undefined") return isValid;
-  sessionStorage.setItem(ADMIN_ACCESS_KEY, "granted");
-  emitAdminAccessChange();
-  return true;
+export function getAdminSession(): AdminSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
 
-export function clearAdminAccess() {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(ADMIN_ACCESS_KEY);
-  emitAdminAccessChange();
+export function clearAdminSession() {
+  sessionStorage.removeItem(KEY);
+  emit();
+}
+
+export async function tryAdminAccess(code: string): Promise<AdminSession | null> {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+  if (trimmed === SUPER_ADMIN_CODE) {
+    const s: AdminSession = { role: "super", campusId: null, campusName: null };
+    sessionStorage.setItem(KEY, JSON.stringify(s));
+    emit();
+    return s;
+  }
+  // Look up campus admin code
+  const { data, error } = await supabase
+    .from("campuses")
+    .select("id,name,admin_access_code")
+    .eq("admin_access_code", trimmed)
+    .maybeSingle();
+  if (error || !data) return null;
+  const s: AdminSession = { role: "campus", campusId: data.id, campusName: data.name };
+  sessionStorage.setItem(KEY, JSON.stringify(s));
+  emit();
+  return s;
 }
 
 export function useAdminAccess() {
-  const [hasAccess, setHasAccess] = useState(() => hasAdminAccess());
+  const [session, setSession] = useState<AdminSession | null>(() => getAdminSession());
 
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    const sync = () => setHasAccess(hasAdminAccess());
-    window.addEventListener(ADMIN_ACCESS_EVENT, sync);
+    const sync = () => setSession(getAdminSession());
+    window.addEventListener(EVENT, sync);
     window.addEventListener("focus", sync);
-
-    return () => {
-      window.removeEventListener(ADMIN_ACCESS_EVENT, sync);
-      window.removeEventListener("focus", sync);
-    };
+    return () => { window.removeEventListener(EVENT, sync); window.removeEventListener("focus", sync); };
   }, []);
 
-  const unlock = useCallback((code: string) => {
-    const isValid = submitAdminAccessCode(code);
-    setHasAccess(hasAdminAccess());
-    return isValid;
+  const unlock = useCallback(async (code: string) => {
+    const s = await tryAdminAccess(code);
+    setSession(s);
+    return !!s;
   }, []);
 
-  const lock = useCallback(() => {
-    clearAdminAccess();
-    setHasAccess(false);
-  }, []);
+  const lock = useCallback(() => { clearAdminSession(); setSession(null); }, []);
 
-  return { hasAccess, unlock, lock };
+  return { session, hasAccess: !!session, isSuper: session?.role === "super", unlock, lock };
 }
