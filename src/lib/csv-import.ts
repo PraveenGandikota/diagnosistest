@@ -33,7 +33,7 @@ const Q_ALIASES: Record<string, string[]> = {
   skill: ["skill", "skill_name", "track"],
   level: ["level", "level_name"],
   quiz_number: ["quiz_number", "quiznumber", "quiz", "quiz_no", "quiz_id"],
-  kc: ["kc", "kc_id", "kcid", "kc_diagnosis", "knowledge_component"],
+  kc: ["kc", "kc_id", "kcid", "kc_diagnosis", "kc_diagnosis_knowledge_component", "knowledge_component"],
   topic: ["topic", "topic_name"],
   sub_topic: ["sub_topic", "subtopic", "sub_topic_name"],
   type: ["type", "question_type"],
@@ -44,11 +44,24 @@ const Q_ALIASES: Record<string, string[]> = {
   option_c: ["option_c", "c"],
   option_d: ["option_d", "d"],
   correct: ["correct_option", "correct", "correct_idx", "answer"],
-  wrong_a: ["option_a_diagnosis", "wrong_a_diagnosis", "wrong_a", "diagnosis_a"],
-  wrong_b: ["option_b_diagnosis", "wrong_b_diagnosis", "wrong_b", "diagnosis_b"],
-  wrong_c: ["option_c_diagnosis", "wrong_c_diagnosis", "wrong_c", "diagnosis_c"],
-  wrong_d: ["option_d_diagnosis", "wrong_d_diagnosis", "wrong_d", "diagnosis_d"],
+  wrong_a: ["option_a_diagnosis", "option_diagnosis_a", "wrong_a_diagnosis", "wrong_a", "diagnosis_a"],
+  wrong_b: ["option_b_diagnosis", "option_diagnosis_b", "wrong_b_diagnosis", "wrong_b", "diagnosis_b"],
+  wrong_c: ["option_c_diagnosis", "option_diagnosis_c", "wrong_c_diagnosis", "wrong_c", "diagnosis_c"],
+  wrong_d: ["option_d_diagnosis", "option_diagnosis_d", "wrong_d_diagnosis", "wrong_d", "diagnosis_d"],
   explanation: ["explanation", "rationale"],
+  remediation_beginner: [
+    "recommended_remediation_for_beginner",
+    "remediation_beginner",
+    "beginner_remediation",
+    "remediation_for_beginner",
+  ],
+  remediation_intermediate: [
+    "recommended_remediation_for_intermediate",
+    "remediation_intermediate",
+    "intermediate_remediation",
+    "remediation_for_intermediate",
+  ],
+  mastery: ["mastery_indicator", "mastery"],
 };
 
 function findIndex(headers: string[], key: string): number {
@@ -77,11 +90,12 @@ export interface ParsedQuestionRow extends QuestionInsert {
 export interface ParseResult {
   rows: ParsedQuestionRow[];
   errors: string[];
+  warnings: string[];
 }
 
 export function parseQuestionCsv(text: string): ParseResult {
   const matrix = parseCsv(text);
-  if (matrix.length < 2) return { rows: [], errors: ["CSV must contain a header row and at least one question."] };
+  if (matrix.length < 2) return { rows: [], errors: ["CSV must contain a header row and at least one question."], warnings: [] };
   const headers = matrix[0];
   const idx = {
     skill: findIndex(headers, "skill"),
@@ -103,13 +117,23 @@ export function parseQuestionCsv(text: string): ParseResult {
     wrong_c: findIndex(headers, "wrong_c"),
     wrong_d: findIndex(headers, "wrong_d"),
     explanation: findIndex(headers, "explanation"),
+    remediation_beginner: findIndex(headers, "remediation_beginner"),
+    remediation_intermediate: findIndex(headers, "remediation_intermediate"),
+    mastery: findIndex(headers, "mastery"),
   };
 
   const errors: string[] = [];
-  for (const r of ["skill", "level", "question", "option_a", "option_b", "correct"] as const) {
+  const warnings: string[] = [];
+  for (const r of ["skill", "question", "option_a", "option_b", "correct"] as const) {
     if (idx[r] === -1) errors.push(`Missing required column: ${r}`);
   }
-  if (errors.length > 0) return { rows: [], errors };
+  if (idx.level === -1) {
+    warnings.push('No "level" column found — every question will be assigned to L1 by default.');
+  }
+  if (idx.quiz_number === -1) {
+    warnings.push('No "quiz_number" column found — every question will be grouped under Quiz 1 by default.');
+  }
+  if (errors.length > 0) return { rows: [], errors, warnings };
 
   const rows: ParsedQuestionRow[] = [];
   for (let r = 1; r < matrix.length; r++) {
@@ -144,9 +168,12 @@ export function parseQuestionCsv(text: string): ParseResult {
       wrong_b: wrongs[1] || "",
       wrong_c: wrongs[2] || "",
       quiz_number: parseInt(get(idx.quiz_number), 10) || 1,
+      recommended_remediation_beginner: get(idx.remediation_beginner),
+      recommended_remediation_intermediate: get(idx.remediation_intermediate),
+      mastery_indicator: get(idx.mastery),
     });
   }
-  return { rows, errors };
+  return { rows, errors, warnings };
 }
 
 // ---------- Students CSV ----------

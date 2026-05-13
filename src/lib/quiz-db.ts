@@ -64,14 +64,40 @@ function rowToQuestion(row: any): Question {
     correct: correctIdx,
     explanation: row.explanation || "",
     wrongDiagnosis,
+    remediationBeginner: row.recommended_remediation_beginner || "",
+    remediationIntermediate: row.recommended_remediation_intermediate || "",
+    masteryIndicator: row.mastery_indicator || "",
   };
 }
 
+function safeAnswers(value: unknown): DBSubmissionAnswer[] {
+  if (Array.isArray(value)) return value as DBSubmissionAnswer[];
+  if (value && typeof value === "object") {
+    const vals = Object.values(value as Record<string, unknown>);
+    return vals.filter((v): v is DBSubmissionAnswer => !!v && typeof v === "object");
+  }
+  return [];
+}
+
+function safeKcScores(value: unknown): Record<string, { correct: number; total: number }> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, { correct: number; total: number }> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v && typeof v === "object") {
+      const obj = v as { correct?: unknown; total?: unknown };
+      const correct = typeof obj.correct === "number" ? obj.correct : 0;
+      const total = typeof obj.total === "number" ? obj.total : 0;
+      out[k] = { correct, total };
+    }
+  }
+  return out;
+}
+
 function rowToSubmission(row: any): DBSubmission {
-  const kcScores = (row.kc_scores || {}) as Record<string, { correct: number; total: number }>;
-  const answers = (row.answers || []) as DBSubmissionAnswer[];
+  const kcScores = safeKcScores(row.kc_scores);
+  const answers = safeAnswers(row.answers);
   const missed = new Set<string>();
-  answers.forEach((a) => { if (!a.correct) missed.add(a.kcName || a.kc); });
+  answers.forEach((a) => { if (a && !a.correct) missed.add(a.kcName || a.kc); });
   return {
     id: row.id,
     studentName: row.student_name,
@@ -224,6 +250,9 @@ export interface QuestionInsert {
   quiz_number?: number;
   topic?: string;
   sub_topic?: string;
+  recommended_remediation_beginner?: string;
+  recommended_remediation_intermediate?: string;
+  mastery_indicator?: string;
 }
 
 export async function insertQuestions(rows: QuestionInsert[]) {

@@ -79,19 +79,40 @@ const Quiz = () => {
 
   if (phase === "intro") {
     return (
-      <div className="flex min-h-screen items-center justify-center px-6 py-10">
-        <div className="w-full max-w-md panel p-8">
-          <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Diagnostic Quiz</div>
+      <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
+        <div className="w-full max-w-md panel p-6 sm:p-8">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Diagnostic Quiz
+          </div>
           <h2 className="mb-1 text-2xl font-semibold">Quiz {quizNumber}</h2>
           <p className="mb-6 text-sm text-muted-foreground">
-            {loading ? "Loading questions…" : `${bank.length} question${bank.length === 1 ? "" : "s"} · You'll get instant feedback after each.`}
+            {loading
+              ? "Loading questions…"
+              : bank.length === 0
+                ? "No questions are available for this quiz yet."
+                : `${bank.length} question${bank.length === 1 ? "" : "s"} · instant feedback after each answer.`}
           </p>
-          <button onClick={handleStart} disabled={bank.length === 0 || loading}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
-            <Play className="h-4 w-4" /> Start
+
+          {!loading && bank.length > 0 && (
+            <ul className="mb-6 space-y-2 rounded-md border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" /> Answer at your own pace — no timer.</li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" /> You'll see the right answer and a hint after each question.</li>
+              <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" /> A personalised improvement plan is generated at the end.</li>
+            </ul>
+          )}
+
+          <button
+            onClick={handleStart}
+            disabled={bank.length === 0 || loading}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            <Play className="h-4 w-4" /> {loading ? "Loading…" : "Start quiz"}
           </button>
-          <button onClick={() => navigate(-1)} className="mt-4 block w-full text-center text-xs text-muted-foreground hover:text-foreground">
-            Back
+          <button
+            onClick={() => navigate(-1)}
+            className="mt-4 block w-full text-center text-xs text-muted-foreground hover:text-foreground"
+          >
+            Back to skill page
           </button>
         </div>
       </div>
@@ -101,15 +122,16 @@ const Quiz = () => {
   if (!q) return null;
 
   return (
-    <div className="min-h-screen px-6 py-6 md:px-10">
+    <div className="min-h-screen px-4 py-6 sm:px-6 md:px-10">
       <div className="mx-auto max-w-4xl">
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="badge-kc">Quiz {quizNumber}</span>
             <span className="badge-type">{q.type}</span>
+            {q.kcName && <span className="badge-type">{q.kcName}</span>}
           </div>
           <span className="text-xs font-medium text-muted-foreground">
-            Q{session.currentIdx + 1} of {session.questions.length}
+            Question {session.currentIdx + 1} of {session.questions.length}
           </span>
         </div>
 
@@ -117,7 +139,7 @@ const Quiz = () => {
           <div className="h-full bg-primary transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
 
-        <div className={`panel p-6 ${animClass}`}>
+        <div className={`panel p-5 sm:p-6 ${animClass}`}>
           <QuestionText text={q.question} />
           {q.code && <div className="mb-5"><PyHighlight code={q.code} /></div>}
 

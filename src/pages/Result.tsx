@@ -155,20 +155,23 @@ const Result = () => {
   }
 
   return (
-    <div className="min-h-screen px-6 py-8 md:px-10">
+    <div className="min-h-screen px-4 py-8 sm:px-6 sm:py-10 md:px-10">
       <div className="mx-auto max-w-5xl space-y-6">
-        <div className="panel p-6">
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5 text-primary" /> Quiz Feedback
+        <div className="panel p-5 sm:p-6">
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <Sparkles className="h-3 w-3 text-primary" /> Quiz Feedback
           </div>
-          <h1 className="mb-1 text-3xl font-bold">{session.studentName || "Student"}</h1>
-          <div className="text-sm text-muted-foreground">
-            {session.quizName} · {Math.floor(durationSec / 60)}m {durationSec % 60}s ·{" "}
-            <span className={scorePct >= 60 ? "text-success font-medium" : "text-destructive font-medium"}>Score {scorePct}%</span>
+          <h1 className="mb-1 text-2xl font-bold sm:text-3xl">{session.studentName || "Student"}</h1>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+            <span>{session.quizName}</span>
+            <span aria-hidden>·</span>
+            <span>{Math.floor(durationSec / 60)}m {durationSec % 60}s</span>
+            <span aria-hidden>·</span>
+            <span className={scorePct >= 60 ? "font-semibold text-success" : "font-semibold text-destructive"}>Score {scorePct}%</span>
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-3">
           <Stat label="Correct" value={`${mcqCorrect}/${mcqTotal}`} sub={`${Math.round((mcqCorrect / mcqTotal) * 100)}%`} />
           <Stat label="Topics to revisit" value={String(topicsToRevisit.length)} sub={topicsToRevisit.length === 0 ? "No urgent gaps" : "Priority areas"} />
           <Stat label="Time" value={`${Math.floor(durationSec / 60)}m ${durationSec % 60}s`} sub="elapsed" />
@@ -300,6 +303,29 @@ const Result = () => {
                         <div className="rounded-md bg-muted/50 p-3 text-sm">
                           <span className="font-medium">Recommended:</span> {fb.recommendation}
                         </div>
+                        {(() => {
+                          const beginner = question.remediationBeginner?.trim();
+                          const intermediate = question.remediationIntermediate?.trim();
+                          const useIntermediate = scorePct >= 60;
+                          const primary = useIntermediate ? (intermediate || beginner) : (beginner || intermediate);
+                          if (!primary) return null;
+                          return (
+                            <div className="mt-3 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-primary">
+                                Remediation · {useIntermediate ? "Intermediate" : "Beginner"}
+                              </div>
+                              <p>{primary}</p>
+                            </div>
+                          );
+                        })()}
+                        {question.masteryIndicator?.trim() && (
+                          <div className="mt-3 rounded-md border border-success/30 bg-success/5 p-3 text-sm">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-success">
+                              What mastery looks like
+                            </div>
+                            <p>{question.masteryIndicator}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -315,9 +341,13 @@ const Result = () => {
           </Link>
           <button
             onClick={() => {
-              const moduleName = session.quizName;
+              const { skillId, levelId, quizNumber } = session;
               reset();
-              navigate(`/quiz?module=${encodeURIComponent(moduleName)}`);
+              if (skillId && levelId && quizNumber) {
+                navigate(`/quiz?skill=${skillId}&level=${levelId}&quiz=${quizNumber}`);
+              } else {
+                navigate("/");
+              }
             }}
             className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-muted/40"
           >

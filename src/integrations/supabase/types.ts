@@ -80,6 +80,7 @@ export type Database = {
           kc: string
           kc_name: string
           level_id: string | null
+          mastery_indicator: string
           option_a: string
           option_b: string
           option_c: string
@@ -87,6 +88,8 @@ export type Database = {
           question: string
           quiz_name: string
           quiz_number: number
+          recommended_remediation_beginner: string
+          recommended_remediation_intermediate: string
           skill_id: string | null
           sub_topic: string
           topic: string
@@ -104,6 +107,7 @@ export type Database = {
           kc: string
           kc_name: string
           level_id?: string | null
+          mastery_indicator?: string
           option_a: string
           option_b: string
           option_c: string
@@ -111,6 +115,8 @@ export type Database = {
           question: string
           quiz_name?: string
           quiz_number?: number
+          recommended_remediation_beginner?: string
+          recommended_remediation_intermediate?: string
           skill_id?: string | null
           sub_topic?: string
           topic?: string
@@ -128,6 +134,7 @@ export type Database = {
           kc?: string
           kc_name?: string
           level_id?: string | null
+          mastery_indicator?: string
           option_a?: string
           option_b?: string
           option_c?: string
@@ -135,6 +142,8 @@ export type Database = {
           question?: string
           quiz_name?: string
           quiz_number?: number
+          recommended_remediation_beginner?: string
+          recommended_remediation_intermediate?: string
           skill_id?: string | null
           sub_topic?: string
           topic?: string

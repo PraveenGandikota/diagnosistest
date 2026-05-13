@@ -6,8 +6,11 @@ const QUESTION_HEADERS = [
   "question", "code",
   "option_a", "option_b", "option_c", "option_d",
   "correct_option",
-  "wrong_a_diagnosis", "wrong_b_diagnosis", "wrong_c_diagnosis",
+  "option_a_diagnosis", "option_b_diagnosis", "option_c_diagnosis", "option_d_diagnosis",
   "explanation",
+  "recommended_remediation_for_beginner",
+  "recommended_remediation_for_intermediate",
+  "mastery_indicator",
 ];
 
 const QUESTION_SAMPLE: string[][] = [
@@ -20,10 +23,14 @@ const QUESTION_SAMPLE: string[][] = [
     "Removing irrelevant detail",
     "Writing step-by-step instructions",
     "A",
-    "Correct — that is pattern recognition.",
+    "Correct — that is exactly what decomposition is.",
+    "That is pattern recognition, not decomposition.",
     "That is abstraction.",
     "That is algorithm design.",
     "Decomposition is the process of breaking a complex problem into smaller, manageable parts.",
+    "Start by listing the parts of a small everyday task (e.g., making tea) and identify each step before moving to code.",
+    "Practice breaking a medium-sized programming problem into 3-5 sub-problems and write a one-line goal for each.",
+    "Can independently break a new problem into well-scoped sub-problems and explain how each one contributes to the whole.",
   ],
   [
     "Computational Thinking", "L1", "2",
@@ -34,10 +41,14 @@ const QUESTION_SAMPLE: string[][] = [
     "Decompose a problem into subproblems",
     "Translate code to another language",
     "A",
-    "That is abstraction.",
+    "Correct — reusing a known solution shape is the essence of pattern recognition.",
+    "That is abstraction, not pattern recognition.",
     "That is decomposition.",
-    "Translation is unrelated.",
+    "Translation is unrelated to pattern recognition.",
     "Pattern recognition lets us reuse solutions across similar problems.",
+    "Solve two simple problems back-to-back (e.g., sum of list, average of list) and circle the steps that repeat.",
+    "Compare two solved problems from different domains and write down the shared structure as a reusable template.",
+    "Can spot a familiar structure inside a new problem and adapt a known solution with minimal rework.",
   ],
 ];
 

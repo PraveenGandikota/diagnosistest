@@ -26,6 +26,9 @@ export interface Question {
   correct: number;
   explanation: string;
   wrongDiagnosis: string[];
+  remediationBeginner?: string;
+  remediationIntermediate?: string;
+  masteryIndicator?: string;
 }
 
 export const QUESTION_TYPES: QuestionType[] = [
