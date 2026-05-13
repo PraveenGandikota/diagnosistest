@@ -143,6 +143,20 @@ export async function fetchSkills(): Promise<Skill[]> {
   return (data || []) as Skill[];
 }
 
+export async function fetchSkillsWithQuestions(): Promise<Skill[]> {
+  const [skillsRes, questionsRes] = await Promise.all([
+    supabase.from("skills").select("*").order("sort_order"),
+    supabase.from("questions").select("skill_id").not("skill_id", "is", null),
+  ]);
+  if (skillsRes.error) { console.error(skillsRes.error); return []; }
+  if (questionsRes.error) { console.error(questionsRes.error); return []; }
+  const allowed = new Set<string>();
+  (questionsRes.data || []).forEach((row: { skill_id: string | null }) => {
+    if (row.skill_id) allowed.add(row.skill_id);
+  });
+  return ((skillsRes.data || []) as Skill[]).filter((s) => allowed.has(s.id));
+}
+
 export async function fetchLevelsForSkill(skillId: string): Promise<Level[]> {
   const { data, error } = await supabase.from("levels").select("*").eq("skill_id", skillId).order("sort_order");
   if (error) { console.error(error); return []; }

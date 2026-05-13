@@ -7,13 +7,15 @@ import {
   buildFallbackImprovementReport,
   buildQuestionFeedback,
   buildTopicBreakdown,
-  getStudentTopic,
   type ImprovementPlanItem,
   type ImprovementReport,
 } from "@/lib/student-feedback";
-import { saveSubmission } from "@/lib/quiz-db";
+import { fetchSkills, saveSubmission, type Skill } from "@/lib/quiz-db";
 import { useStudentSession } from "@/lib/student-session";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/config";
+import { PyHighlight } from "@/components/PyHighlight";
+import { formatCodeBlock, hasRenderableCode } from "@/lib/code-format";
+import { getRemediationLink } from "@/lib/remediation-links";
 
 interface AIReport {
   summary: string;
@@ -29,7 +31,19 @@ const Result = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openAnswer, setOpenAnswer] = useState<string | null>(null);
+  const [skillName, setSkillName] = useState<string | null>(null);
   const savedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session.skillId) { setSkillName(null); return; }
+    let cancelled = false;
+    fetchSkills().then((all: Skill[]) => {
+      if (cancelled) return;
+      const match = all.find((s) => s.id === session.skillId);
+      setSkillName(match?.name ?? null);
+    });
+    return () => { cancelled = true; };
+  }, [session.skillId]);
 
   const questionById = useMemo(
     () => new Map(session.questions.map((q) => [q.id, q])),
@@ -183,25 +197,30 @@ const Result = () => {
             <div className="text-xs text-muted-foreground">No topic data available.</div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              {topicBreakdown.map((t) => (
-                <div key={t.topic} className="ide-card p-4">
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-semibold">{t.topic}</div>
-                      <div className="text-xs text-muted-foreground">{t.description}</div>
+              {topicBreakdown.map((t) => {
+                const link = getRemediationLink(skillName, t.topic);
+                return (
+                  <div key={t.topic} className="ide-card p-4">
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">{t.topic}</div>
+                        <div className="text-xs text-muted-foreground">{t.description}</div>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${t.pct === 100 ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>
+                        {t.pct === 100 ? "Solid" : "Revise"}
+                      </span>
                     </div>
-                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${t.pct === 100 ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>
-                      {t.pct === 100 ? "Solid" : "Revise"}
-                    </span>
+                    <div className="mb-2 text-sm text-muted-foreground">
+                      {t.correct} / {t.total} correct
+                    </div>
+                    {link && (
+                      <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                        {link.title} <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                   </div>
-                  <div className="mb-2 text-sm text-muted-foreground">
-                    {t.correct} / {t.total} correct
-                  </div>
-                  <a href={t.resource.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
-                    {t.resource.title} <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -235,7 +254,7 @@ const Result = () => {
                 <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">Priority revision areas</div>
                 <div className="space-y-3">
                   {displayReport.improvementPlan.map((item, idx) => {
-                    const meta = topicBreakdown.find((t) => t.topic === item.topic) ?? getStudentTopic({ topic: item.topic });
+                    const link = getRemediationLink(skillName, item.topic);
                     return (
                       <div key={`${item.topic}-${idx}`} className="ide-card p-4">
                         <div className="mb-2 flex items-center justify-between gap-3">
@@ -244,9 +263,11 @@ const Result = () => {
                         </div>
                         <p className="mb-2 text-sm text-muted-foreground">{item.observation}</p>
                         <p className="mb-3 text-sm">{item.recommendation}</p>
-                        <a href={meta.resource.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
-                          {meta.resource.title} <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
+                        {link && (
+                          <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                            {link.title} <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
                       </div>
                     );
                   })}
@@ -288,6 +309,11 @@ const Result = () => {
                   </button>
                   {open && (
                     <div className="border-t border-border bg-muted/20 px-4 py-4 text-sm">
+                      {hasRenderableCode(question.code) && (
+                        <div className="mb-3">
+                          <PyHighlight code={formatCodeBlock(question.code)} />
+                        </div>
+                      )}
                       <div className="mb-2 text-xs text-muted-foreground">
                         Your answer: <span className={a.correct ? "text-success" : "text-destructive"}>{formatChoice(a.selectedIdx, a.options)}</span>
                       </div>

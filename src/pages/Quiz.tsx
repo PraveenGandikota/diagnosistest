@@ -6,6 +6,7 @@ import { fetchQuestionsForQuiz } from "@/lib/quiz-db";
 import { useQuiz } from "@/lib/quiz-store";
 import { useStudentSession } from "@/lib/student-session";
 import type { Question } from "@/lib/quiz-types";
+import { formatCodeBlock, hasRenderableCode } from "@/lib/code-format";
 
 const Quiz = () => {
   const navigate = useNavigate();
@@ -141,7 +142,11 @@ const Quiz = () => {
 
         <div className={`panel p-5 sm:p-6 ${animClass}`}>
           <QuestionText text={q.question} />
-          {q.code && <div className="mb-5"><PyHighlight code={q.code} /></div>}
+          {hasRenderableCode(q.code) && (
+            <div className="mb-5">
+              <PyHighlight code={formatCodeBlock(q.code)} />
+            </div>
+          )}
 
           <div className="grid gap-2.5">
             {q.options.map((option, index) => {
@@ -187,7 +192,7 @@ const QuestionText = ({ text }: { text: string }) => {
     <div className="mb-4 space-y-3 text-lg font-medium leading-relaxed">
       {segments.map((seg, i) =>
         seg.type === "code"
-          ? <PyHighlight key={i} code={seg.content} />
+          ? (hasRenderableCode(seg.content) ? <PyHighlight key={i} code={formatCodeBlock(seg.content)} /> : null)
           : <p key={i} className="whitespace-pre-wrap break-words">{renderInlineCode(seg.content)}</p>
       )}
     </div>

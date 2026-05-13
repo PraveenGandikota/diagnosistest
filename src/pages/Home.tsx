@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, GraduationCap, LogOut, Stethoscope, BookOpen, ChevronRight, ClipboardList, Sparkles, Layers, Trophy } from "lucide-react";
 import { useStudentSession } from "@/lib/student-session";
 import {
-  fetchCampuses, fetchSkills, fetchLevelsForSkill, fetchQuizzesForLevel, findStudent,
+  fetchCampuses, fetchSkills, fetchSkillsWithQuestions, fetchLevelsForSkill, fetchQuizzesForLevel, findStudent,
   fetchSubmissions,
   type Campus, type Skill, type Level, type DBSubmission,
 } from "@/lib/quiz-db";
@@ -134,7 +134,7 @@ const SkillPicker = ({ logout }: { logout: () => void }) => {
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      fetchSkills(),
+      fetchSkillsWithQuestions(),
       session?.student.id ? fetchSubmissions({ studentUuid: session.student.id }) : Promise.resolve([] as DBSubmission[]),
     ])
       .then(([s, subs]) => {
