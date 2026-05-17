@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { Building2, ClipboardList, Download, FileWarning, GraduationCap, Layers, LogOut, ShieldCheck, Trash2, TrendingUp, Upload, Users, Plus } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Building2, ClipboardList, Download, FileWarning, GraduationCap, Layers, LogOut, ShieldCheck, Timer, Trash2, TrendingUp, Upload, Users, Plus } from "lucide-react";
 import { AdminAccessGate } from "@/components/AdminAccessGate";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { EmptyState } from "@/components/dashboard/EmptyState";
@@ -10,9 +10,10 @@ import {
   fetchAllQuestions, fetchSubmissions, deleteSubmission as deleteSubDb,
   insertQuestions,
   fetchCampuses, insertCampus, deleteCampus,
-  fetchSkills, ensureSkill, ensureLevel,
+  fetchSkills, ensureSkill, ensureLevel, updateSkillExamConfig, fetchAllLevels,
   fetchStudents, insertStudents, deleteStudent,
-  type DBSubmission, type Campus, type Skill, type Student,
+  createExamSession, fetchActiveExamSessionsForAdmin, closeExamSession,
+  type DBSubmission, type Campus, type Skill, type Student, type Level, type ExamSession,
 } from "@/lib/quiz-db";
 import { downloadQuestionTemplate, downloadStudentTemplate } from "@/lib/csv-template";
 import { parseQuestionCsv, parseStudentCsv } from "@/lib/csv-import";
@@ -20,7 +21,7 @@ import { useAdminAccess } from "@/lib/admin-access";
 import type { Question } from "@/lib/quiz-types";
 import { toast } from "sonner";
 
-type Tab = "overview" | "students" | "submissions" | "uploads" | "campuses";
+type Tab = "overview" | "students" | "submissions" | "uploads" | "campuses" | "exams" | "sessions";
 
 const Admin = () => (
   <AdminAccessGate title="Admin dashboard" description="Enter your access code (super admin or campus admin).">
@@ -35,8 +36,8 @@ const Dashboard = ({ onLock }: { onLock: () => void }) => {
   const refresh = () => setRefreshKey((k) => k + 1);
 
   const tabs: Tab[] = isSuper
-    ? ["overview", "students", "submissions", "uploads", "campuses"]
-    : ["overview", "students", "submissions"];
+    ? ["overview", "students", "submissions", "uploads", "campuses", "exams", "sessions"]
+    : ["overview", "students", "submissions", "sessions"];
 
   const tabLabels: Record<Tab, string> = {
     overview: "Overview",
@@ -44,6 +45,8 @@ const Dashboard = ({ onLock }: { onLock: () => void }) => {
     submissions: "Submissions",
     uploads: "Uploads",
     campuses: "Campuses",
+    exams: "Exams",
+    sessions: "Exam Codes",
   };
 
   return (
@@ -88,6 +91,15 @@ const Dashboard = ({ onLock }: { onLock: () => void }) => {
         {tab === "submissions" && <SubmissionsTab refreshKey={refreshKey} onChange={refresh} campusFilter={isSuper ? null : session?.campusId ?? null} />}
         {tab === "uploads" && isSuper && <UploadsTab onChange={refresh} />}
         {tab === "campuses" && isSuper && <CampusesTab refreshKey={refreshKey} onChange={refresh} />}
+        {tab === "exams" && isSuper && <ExamsTab refreshKey={refreshKey} />}
+        {tab === "sessions" && (
+          <ExamSessionsTab
+            refreshKey={refreshKey}
+            isSuper={isSuper}
+            campusId={isSuper ? null : session?.campusId ?? null}
+            campusName={session?.campusName ?? null}
+          />
+        )}
       </div>
     </div>
   );
@@ -686,8 +698,8 @@ const StudentUpload = ({ onChange }: { onChange: () => void }) => {
     const rows = preview.map((r) => {
       const cid = byName.get(r._campusName.toLowerCase());
       if (!cid) missingCampuses.add(r._campusName);
-      return cid ? { student_id: r.student_id, name: r.name, email: r.email, campus_id: cid } : null;
-    }).filter(Boolean) as { student_id: string; name: string; email: string | null; campus_id: string }[];
+      return cid ? { student_id: r.student_id, name: r.name, email: r.email, campus_id: cid, access_code: r.access_code } : null;
+    }).filter(Boolean) as { student_id: string; name: string; email: string | null; campus_id: string; access_code: string | null }[];
 
     if (missingCampuses.size > 0) {
       toast.error(`Unknown campus: ${Array.from(missingCampuses).join(", ")}. Create them in the Campuses tab first.`);
@@ -837,6 +849,349 @@ const CampusesTab = ({ refreshKey, onChange }: { refreshKey: number; onChange: (
           </table>
         </ResponsiveTableWrapper>
       )}
+    </div>
+  );
+};
+
+// ---------- Exams config (Super Admin only) ----------
+
+interface ExamDraft { code: string; duration: string; attempts: string; }
+
+const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, ExamDraft>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchSkills().then((list) => {
+      setSkills(list);
+      const next: Record<string, ExamDraft> = {};
+      list.forEach((s) => {
+        next[s.id] = {
+          code: s.exam_access_code ?? "",
+          duration: String(s.exam_duration_min ?? 30),
+          attempts: String(s.max_attempts ?? 1),
+        };
+      });
+      setDrafts(next);
+      setLoading(false);
+    });
+  }, [refreshKey]);
+
+  const setDraft = (id: string, patch: Partial<ExamDraft>) =>
+    setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+
+  const handleSave = async (skillId: string) => {
+    const d = drafts[skillId];
+    const duration = parseInt(d.duration, 10);
+    const attempts = parseInt(d.attempts, 10);
+    if (!Number.isFinite(duration) || duration < 0) { toast.error("Duration must be 0 or more minutes."); return; }
+    if (!Number.isFinite(attempts) || attempts < 1) { toast.error("Attempts must be at least 1."); return; }
+    setSavingId(skillId);
+    const { error } = await updateSkillExamConfig(skillId, {
+      exam_access_code: d.code.trim() ? d.code.trim() : null,
+      exam_duration_min: duration,
+      max_attempts: attempts,
+    });
+    setSavingId(null);
+    if (error) { toast.error(`Save failed: ${error.message}`); return; }
+    toast.success("Exam settings saved");
+  };
+
+  if (loading) return <div className="panel p-6"><LoadingState lines={5} label="Loading exam settings…" /></div>;
+
+  return (
+    <div className="space-y-4">
+      <DashboardSection
+        title="Exam settings per skill"
+        description="Set the unlock code students enter before an exam, the countdown duration (0 = untimed), and how many attempts are allowed per quiz."
+      >
+        {skills.length === 0 ? (
+          <EmptyState
+            icon={Timer}
+            title="No skills yet"
+            description="Upload questions in the Uploads tab — skills are created from the CSV Skill column."
+          />
+        ) : (
+          <ResponsiveTableWrapper>
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left">Skill</th>
+                  <th className="px-4 py-3 text-left">Unlock code</th>
+                  <th className="px-4 py-3 text-left">Duration (min)</th>
+                  <th className="px-4 py-3 text-left">Max attempts</th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {skills.map((s) => {
+                  const d = drafts[s.id] ?? { code: "", duration: "30", attempts: "1" };
+                  return (
+                    <tr key={s.id} className="border-t border-border">
+                      <td className="px-4 py-3 font-medium">{s.name}</td>
+                      <td className="px-4 py-3">
+                        <input
+                          value={d.code}
+                          onChange={(e) => setDraft(s.id, { code: e.target.value })}
+                          placeholder="Optional"
+                          className="w-32 rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="number" min={0}
+                          value={d.duration}
+                          onChange={(e) => setDraft(s.id, { duration: e.target.value })}
+                          className="w-20 rounded-md border border-border bg-card px-2 py-1.5 text-xs outline-none focus:border-primary"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="number" min={1}
+                          value={d.attempts}
+                          onChange={(e) => setDraft(s.id, { attempts: e.target.value })}
+                          className="w-20 rounded-md border border-border bg-card px-2 py-1.5 text-xs outline-none focus:border-primary"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleSave(s.id)}
+                          disabled={savingId === s.id}
+                          className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {savingId === s.id ? "Saving…" : "Save"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </ResponsiveTableWrapper>
+        )}
+      </DashboardSection>
+      <p className="text-xs text-muted-foreground">
+        Leave the unlock code empty to let students start without a code. Duration 0 makes the exam untimed.
+      </p>
+    </div>
+  );
+};
+
+// ---------- Exam Codes (session-based unlock codes) ----------
+
+const sessionFieldCls = "w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20";
+
+const SessionField = ({ label, children }: { label: string; children: ReactNode }) => (
+  <label className="block">
+    <span className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+    {children}
+  </label>
+);
+
+// datetime-local expects "YYYY-MM-DDTHH:mm" in local time.
+function toLocalInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const ExamSessionsTab = ({
+  refreshKey, isSuper, campusId, campusName,
+}: { refreshKey: number; isSuper: boolean; campusId: string | null; campusName: string | null }) => {
+  const [sessions, setSessions] = useState<ExamSession[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [levels, setLevels] = useState<Level[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [localKey, setLocalKey] = useState(0);
+
+  const [fCampus, setFCampus] = useState("");
+  const [fSkill, setFSkill] = useState("");
+  const [fLevel, setFLevel] = useState("");
+  const [fQuiz, setFQuiz] = useState("1");
+  const [fDuration, setFDuration] = useState("30");
+  const [fAttempts, setFAttempts] = useState("1");
+  const [fStart, setFStart] = useState(() => toLocalInput(new Date()));
+  const [fEnd, setFEnd] = useState(() => toLocalInput(new Date(Date.now() + 2 * 3600 * 1000)));
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetchActiveExamSessionsForAdmin({ isSuper, campusId }),
+      fetchCampuses(),
+      fetchSkills(),
+      fetchAllLevels(),
+    ]).then(([ss, c, sk, lv]) => {
+      setSessions(ss); setCampuses(c); setSkills(sk); setLevels(lv); setLoading(false);
+    });
+  }, [refreshKey, localKey, isSuper, campusId]);
+
+  const campusLabel = (id: string | null) => (id ? campuses.find((c) => c.id === id)?.name ?? "—" : "All campuses");
+  const skillLabel = (id: string) => skills.find((s) => s.id === id)?.name ?? "—";
+  const levelLabel = (id: string | null) => (id ? levels.find((l) => l.id === id)?.name ?? "—" : "Any level");
+  const skillLevels = levels.filter((l) => l.skill_id === fSkill);
+
+  const handleCreate = async () => {
+    if (!fSkill) { toast.error("Choose a skill."); return; }
+    const quizNumber = parseInt(fQuiz, 10);
+    const durationMin = parseInt(fDuration, 10);
+    const attempts = parseInt(fAttempts, 10);
+    if (!Number.isFinite(quizNumber) || quizNumber < 1) { toast.error("Quiz number must be 1 or more."); return; }
+    if (!Number.isFinite(durationMin) || durationMin < 0) { toast.error("Duration must be 0 or more minutes."); return; }
+    if (!Number.isFinite(attempts) || attempts < 1) { toast.error("Attempts must be at least 1."); return; }
+    const startsAt = new Date(fStart);
+    const endsAt = new Date(fEnd);
+    if (isNaN(startsAt.getTime()) || isNaN(endsAt.getTime())) { toast.error("Enter valid start and end times."); return; }
+    if (endsAt <= startsAt) { toast.error("End time must be after the start time."); return; }
+
+    setCreating(true);
+    const { data, error } = await createExamSession({
+      campusId: fCampus || null,
+      skillId: fSkill,
+      levelId: fLevel || null,
+      quizNumber,
+      durationSec: durationMin * 60,
+      maxAttempts: attempts,
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      createdBy: "super-admin",
+    });
+    setCreating(false);
+    if (error || !data) { toast.error(`Could not create session: ${error}`); return; }
+    toast.success(`Exam session created — code ${data.code}`);
+    setLocalKey((k) => k + 1);
+  };
+
+  const handleClose = async (id: string) => {
+    if (!confirm("Close this exam session? Students can no longer start with its code.")) return;
+    const { error } = await closeExamSession(id);
+    if (error) { toast.error("Could not close the session."); return; }
+    setLocalKey((k) => k + 1);
+  };
+
+  if (loading) return <div className="panel p-6"><LoadingState lines={5} label="Loading exam sessions…" /></div>;
+
+  return (
+    <div className="space-y-4">
+      {isSuper && (
+        <DashboardSection
+          title="Create exam session"
+          description="Generates a unique unlock code for a campus, skill, level and quiz. Campus admins announce the code to students."
+        >
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <SessionField label="Campus">
+              <select value={fCampus} onChange={(e) => setFCampus(e.target.value)} className={sessionFieldCls}>
+                <option value="">All campuses</option>
+                {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </SessionField>
+            <SessionField label="Skill">
+              <select value={fSkill} onChange={(e) => { setFSkill(e.target.value); setFLevel(""); }} className={sessionFieldCls}>
+                <option value="">Select skill</option>
+                {skills.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </SessionField>
+            <SessionField label="Level">
+              <select value={fLevel} onChange={(e) => setFLevel(e.target.value)} disabled={!fSkill} className={sessionFieldCls}>
+                <option value="">Any level</option>
+                {skillLevels.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </SessionField>
+            <SessionField label="Quiz number">
+              <input type="number" min={1} value={fQuiz} onChange={(e) => setFQuiz(e.target.value)} className={sessionFieldCls} />
+            </SessionField>
+            <SessionField label="Duration (min)">
+              <input type="number" min={0} value={fDuration} onChange={(e) => setFDuration(e.target.value)} className={sessionFieldCls} />
+            </SessionField>
+            <SessionField label="Max attempts">
+              <input type="number" min={1} value={fAttempts} onChange={(e) => setFAttempts(e.target.value)} className={sessionFieldCls} />
+            </SessionField>
+            <SessionField label="Starts at">
+              <input type="datetime-local" value={fStart} onChange={(e) => setFStart(e.target.value)} className={sessionFieldCls} />
+            </SessionField>
+            <SessionField label="Ends at">
+              <input type="datetime-local" value={fEnd} onChange={(e) => setFEnd(e.target.value)} className={sessionFieldCls} />
+            </SessionField>
+          </div>
+          <button
+            onClick={handleCreate}
+            disabled={creating}
+            className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5" /> {creating ? "Generating…" : "Generate exam code"}
+          </button>
+        </DashboardSection>
+      )}
+
+      <DashboardSection
+        title={isSuper ? "All exam sessions" : `Exam sessions · ${campusName ?? "your campus"}`}
+        description={isSuper
+          ? "Every generated code across all campuses. Close a session to stop new students using it."
+          : "Active codes for your campus — announce these to students in the classroom."}
+      >
+        {sessions.length === 0 ? (
+          <EmptyState
+            icon={Timer}
+            title="No exam sessions yet"
+            description={isSuper ? "Create one above to generate a code." : "Your super admin has not created any exam sessions yet."}
+          />
+        ) : (
+          <ResponsiveTableWrapper>
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left">Code</th>
+                  <th className="px-4 py-3 text-left">Campus</th>
+                  <th className="px-4 py-3 text-left">Skill / Level / Quiz</th>
+                  <th className="px-4 py-3 text-left">Window</th>
+                  <th className="px-4 py-3 text-left">Duration</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  {isSuper && <th className="px-4 py-3"></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => {
+                  const expired = Date.now() > new Date(s.ends_at).getTime();
+                  const live = s.status === "active" && !expired;
+                  return (
+                    <tr key={s.id} className="border-t border-border hover:bg-muted/20">
+                      <td className="px-4 py-3 font-mono text-base font-bold tracking-widest">{s.code}</td>
+                      <td className="px-4 py-3 text-xs">{campusLabel(s.campus_id)}</td>
+                      <td className="px-4 py-3 text-xs">{skillLabel(s.skill_id)} · {levelLabel(s.level_id)} · Quiz {s.quiz_number}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {new Date(s.starts_at).toLocaleString()} → {new Date(s.ends_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {Math.round(s.duration_sec / 60)} min · {s.max_attempts} attempt{s.max_attempts === 1 ? "" : "s"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${live ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}>
+                          {s.status === "closed" ? "Closed" : expired ? "Expired" : "Active"}
+                        </span>
+                      </td>
+                      {isSuper && (
+                        <td className="px-4 py-3 text-right">
+                          {live && (
+                            <button
+                              onClick={() => handleClose(s.id)}
+                              className="rounded-md border border-border px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
+                            >
+                              Close
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </ResponsiveTableWrapper>
+        )}
+      </DashboardSection>
     </div>
   );
 };

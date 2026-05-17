@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowRight, GraduationCap, LogOut, Stethoscope, BookOpen, ChevronRight, ClipboardList, Sparkles, Layers, Trophy } from "lucide-react";
+import { ArrowRight, GraduationCap, LogOut, Stethoscope, BookOpen, ChevronRight, ClipboardList, Sparkles, Layers, Trophy, Eye, EyeOff } from "lucide-react";
 import { useStudentSession } from "@/lib/student-session";
 import {
-  fetchCampuses, fetchSkills, fetchSkillsWithQuestions, fetchLevelsForSkill, fetchQuizzesForLevel, findStudent,
+  fetchSkills, fetchSkillsWithQuestions, fetchLevelsForSkill, fetchQuizzesForLevel, loginStudent,
   fetchSubmissions,
-  type Campus, type Skill, type Level, type DBSubmission,
+  type Skill, type Level, type DBSubmission,
 } from "@/lib/quiz-db";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/dashboard/EmptyState";
@@ -22,35 +22,28 @@ export default Home;
 // ---------- Login ----------
 
 const StudentLogin = () => {
-  const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [campusesLoading, setCampusesLoading] = useState(true);
-  const [campusId, setCampusId] = useState("");
   const [studentId, setStudentId] = useState("");
-  const [name, setName] = useState("");
+  const [accessCode, setAccessCode] = useState("");
+  const [showCode, setShowCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const { setSession } = useStudentSession();
 
-  useEffect(() => {
-    setCampusesLoading(true);
-    fetchCampuses()
-      .then(setCampuses)
-      .finally(() => setCampusesLoading(false));
-  }, []);
-
   const handleLogin = async () => {
-    if (!campusId || !studentId.trim() || !name.trim()) {
-      toast.error("Please fill in all fields.");
+    // Trim only the ends — spaces inside the credential are kept intact.
+    const trimmedId = studentId.trim();
+    const trimmedCode = accessCode.trim();
+    if (!trimmedId || !trimmedCode) {
+      toast.error("Enter your Student ID and access credential.");
       return;
     }
     setBusy(true);
-    const s = await findStudent(studentId, name);
+    const result = await loginStudent(trimmedId, trimmedCode);
     setBusy(false);
-    if (!s || s.campus_id !== campusId) {
-      toast.error("Student not found in the selected campus. Check with your admin.");
+    if (!result) {
+      toast.error("Invalid Student ID or access credential. Check with your campus admin.");
       return;
     }
-    const campus = campuses.find((c) => c.id === campusId)!;
-    setSession({ student: s, campus });
+    setSession(result);
   };
 
   return (
@@ -67,56 +60,56 @@ const StudentLogin = () => {
         </div>
 
         <p className="mb-5 text-sm text-muted-foreground">
-          Pick your campus and confirm your student details to begin a diagnostic quiz.
+          Sign in with your Student ID and access credential. Your campus is detected automatically.
         </p>
 
         <div className="space-y-4">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">Campus</span>
-            <select
-              value={campusId}
-              onChange={(e) => setCampusId(e.target.value)}
-              disabled={campusesLoading || campuses.length === 0}
-              className="w-full rounded-md border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
-            >
-              <option value="">{campusesLoading ? "Loading campuses…" : "Select your campus"}</option>
-              {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-muted-foreground">Student ID</span>
             <input
               value={studentId}
               onChange={(e) => setStudentId(e.target.value)}
               placeholder="e.g. GR-2024-001"
+              autoComplete="username"
               className="w-full rounded-md border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">Full name</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleLogin(); }}
-              placeholder="As registered with the campus"
-              className="w-full rounded-md border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Access credential</span>
+            <div className="relative">
+              <input
+                type={showCode ? "text" : "password"}
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleLogin(); }}
+                placeholder="Password provided by your campus admin"
+                autoComplete="current-password"
+                className="w-full rounded-md border border-border bg-card px-3 py-2.5 pr-10 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCode((v) => !v)}
+                aria-label={showCode ? "Hide access credential" : "Show access credential"}
+                title={showCode ? "Hide credential" : "Show credential"}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+              >
+                {showCode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </label>
         </div>
 
         <button
           onClick={handleLogin}
-          disabled={busy || campusesLoading}
+          disabled={busy}
           className="mt-6 w-full rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {busy ? "Checking…" : "Continue"}
         </button>
 
-        {!campusesLoading && campuses.length === 0 && (
-          <p className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-center text-xs text-muted-foreground">
-            No campuses set up yet. Ask your super admin to upload campus and student data first.
-          </p>
-        )}
+        <p className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-center text-xs text-muted-foreground">
+          Don't have a credential? Your access credential defaults to your Student ID until your admin sets one.
+        </p>
       </div>
     </div>
   );

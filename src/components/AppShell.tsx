@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Home, Brain, Lock, Moon, Sun, GraduationCap } from "lucide-react";
+import { Home, History, Lock, Moon, Sun, GraduationCap } from "lucide-react";
 import { useAdminAccess } from "@/lib/admin-access";
 
 type Theme = "light" | "dark";
 
 const publicItems = [
   { to: "/", label: "Home", icon: Home },
-  { to: "/quiz", label: "Quiz", icon: Brain },
+  { to: "/history", label: "Attempt History", icon: History },
 ];
 
 const adminItems = [

@@ -183,6 +183,7 @@ const S_ALIASES: Record<string, string[]> = {
   student_id: ["student_id", "studentid", "id", "user_id"],
   name: ["name", "student_name", "full_name"],
   email: ["email", "email_address"],
+  access_code: ["access_code", "accesscode", "password", "credential", "exam_code", "login_code"],
 };
 
 function findStudentIdx(headers: string[], key: string): number {
@@ -199,6 +200,7 @@ export interface ParsedStudentRow {
   student_id: string;
   name: string;
   email: string | null;
+  access_code: string | null;
 }
 
 export function parseStudentCsv(text: string): { rows: ParsedStudentRow[]; errors: string[] } {
@@ -210,6 +212,7 @@ export function parseStudentCsv(text: string): { rows: ParsedStudentRow[]; error
     student_id: findStudentIdx(headers, "student_id"),
     name: findStudentIdx(headers, "name"),
     email: findStudentIdx(headers, "email"),
+    access_code: findStudentIdx(headers, "access_code"),
   };
   const errors: string[] = [];
   for (const r of ["campus", "student_id", "name"] as const) {
@@ -229,6 +232,7 @@ export function parseStudentCsv(text: string): { rows: ParsedStudentRow[]; error
       student_id: studentId,
       name,
       email: get(idx.email) || null,
+      access_code: get(idx.access_code) || null,
     });
   }
   return { rows, errors };

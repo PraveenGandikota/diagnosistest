@@ -5,9 +5,21 @@ import { getTopicDisplayName, normalizeQuestionType } from "./quiz-types";
 // ---------- Types ----------
 
 export interface Campus { id: string; name: string; code: string; admin_access_code: string; }
-export interface Skill { id: string; name: string; description: string; sort_order: number; }
+export interface Skill {
+  id: string; name: string; description: string; sort_order: number;
+  /** Optional unlock code a student must enter before starting an exam. */
+  exam_access_code?: string | null;
+  /** Countdown length in minutes (0 = untimed). */
+  exam_duration_min?: number;
+  /** Allowed attempts per quiz (default 1). */
+  max_attempts?: number;
+}
 export interface Level { id: string; skill_id: string; name: string; sort_order: number; }
-export interface Student { id: string; student_id: string; name: string; email: string | null; campus_id: string; }
+export interface Student {
+  id: string; student_id: string; name: string; email: string | null; campus_id: string;
+  /** Login credential; falls back to student_id when unset. */
+  access_code?: string | null;
+}
 
 export interface DBSubmissionAnswer {
   qid: string; kc: string; kcName?: string; type: string; question: string;
@@ -34,6 +46,10 @@ export interface DBSubmission {
   kcScores: Record<string, { correct: number; total: number }>;
   aiReport: string;
   answers: DBSubmissionAnswer[];
+  /** Internal anti-cheat counter recorded during the exam. */
+  violations?: number;
+  /** Set when the exam was auto-submitted by the proctoring rules. */
+  terminationReason?: string | null;
 }
 
 // ---------- Mappers ----------
@@ -118,6 +134,8 @@ function rowToSubmission(row: any): DBSubmission {
     kcScores,
     aiReport: row.ai_report || "",
     answers,
+    violations: typeof row.violations === "number" ? row.violations : 0,
+    terminationReason: row.termination_reason ?? null,
   };
 }
 
@@ -186,6 +204,20 @@ export async function ensureSkill(name: string): Promise<Skill | null> {
   return data as Skill;
 }
 
+export async function fetchSkillById(id: string): Promise<Skill | null> {
+  const { data, error } = await supabase.from("skills").select("*").eq("id", id).maybeSingle();
+  if (error) { console.error(error); return null; }
+  return (data as Skill) || null;
+}
+
+/** Super-admin updates the per-skill exam config (unlock code, duration, attempts). */
+export async function updateSkillExamConfig(
+  skillId: string,
+  cfg: { exam_access_code: string | null; exam_duration_min: number; max_attempts: number },
+) {
+  return supabase.from("skills").update(cfg as any).eq("id", skillId);
+}
+
 export async function fetchStudents(campusId?: string): Promise<Student[]> {
   let q = supabase.from("students").select("*").order("name");
   if (campusId) q = q.eq("campus_id", campusId);
@@ -205,10 +237,62 @@ export async function findStudent(studentExternalId: string, name: string): Prom
   return (data as Student) || null;
 }
 
-export async function insertStudents(rows: { student_id: string; name: string; email: string | null; campus_id: string }[]) {
+export async function insertStudents(
+  rows: { student_id: string; name: string; email: string | null; campus_id: string; access_code?: string | null }[],
+) {
   if (rows.length === 0) return { count: 0, error: null };
-  const { error } = await supabase.from("students").upsert(rows, { onConflict: "campus_id,student_id" });
+  // Default the login credential to the Student ID when the CSV omits it.
+  const normalised = rows.map((r) => ({
+    ...r,
+    access_code: r.access_code && r.access_code.trim() ? r.access_code.trim() : r.student_id,
+  }));
+  let { error } = await supabase.from("students").upsert(normalised as any, { onConflict: "campus_id,student_id" });
+  // Fall back gracefully if the access_code column is not in the schema yet.
+  if (error && /access_code|column|schema cache/i.test(error.message || "")) {
+    const bare = rows.map((r) => ({ student_id: r.student_id, name: r.name, email: r.email, campus_id: r.campus_id }));
+    ({ error } = await supabase.from("students").upsert(bare, { onConflict: "campus_id,student_id" }));
+  }
   return { count: rows.length, error };
+}
+
+/** Resolves a Campus row by id (used to auto-resolve a student's campus on login). */
+export async function fetchCampusById(id: string): Promise<Campus | null> {
+  const { data, error } = await supabase.from("campuses").select("*").eq("id", id).maybeSingle();
+  if (error) { console.error(error); return null; }
+  return (data as Campus) || null;
+}
+
+/**
+ * Logs a student in with Student ID + access credential. Campus is resolved
+ * automatically. Both typed values and stored values are normalised (leading/
+ * trailing whitespace trimmed only — inner spaces are preserved, so a name like
+ * "Student 9" stays intact). The credential is accepted if it matches the
+ * student's access_code, their name, or their Student ID.
+ */
+export async function loginStudent(
+  studentExternalId: string,
+  accessCode: string,
+): Promise<{ student: Student; campus: Campus } | null> {
+  const normalize = (value: unknown) => String(value ?? "").trim();
+  const id = normalize(studentExternalId);
+  const code = normalize(accessCode);
+  if (!id || !code) return null;
+
+  const { data, error } = await supabase.from("students").select("*").eq("student_id", id);
+  if (error || !data || data.length === 0) return null;
+
+  const matches = (data as Student[]).filter((s) => {
+    if (normalize(s.student_id) !== id) return false;
+    const acceptedCredentials = [s.access_code, s.name, s.student_id].map(normalize).filter(Boolean);
+    return acceptedCredentials.includes(code);
+  });
+  // 0 = wrong credential; >1 = same ID+code across campuses (cannot disambiguate).
+  if (matches.length !== 1) return null;
+
+  const student = matches[0];
+  const campus = await fetchCampusById(student.campus_id);
+  if (!campus) return null;
+  return { student, campus };
 }
 
 export async function deleteStudent(id: string) {
@@ -290,29 +374,202 @@ export async function deleteQuizByName(quizName: string) {
 // ---------- Submissions ----------
 
 export async function saveSubmission(sub: Omit<DBSubmission, "id" | "date">) {
-  const { data, error } = await supabase
+  const base = {
+    student_name: sub.studentName,
+    student_id: sub.studentExternalId || "",
+    student_uuid: sub.studentUuid || null,
+    campus_id: sub.campusId || null,
+    skill_id: sub.skillId || null,
+    level_id: sub.levelId || null,
+    quiz_number: sub.quizNumber || 1,
+    quiz_name: sub.quizName,
+    duration_sec: sub.durationSec,
+    mcq_correct: sub.mcqCorrect,
+    mcq_total: sub.mcqTotal,
+    score_pct: sub.scorePct,
+    weakest_kc: sub.weakestKC,
+    kc_scores: sub.kcScores as any,
+    ai_report: sub.aiReport,
+    answers: sub.answers as any,
+  };
+  const withIntegrity = {
+    ...base,
+    violations: sub.violations ?? 0,
+    termination_reason: sub.terminationReason ?? null,
+  };
+
+  let res = await supabase.from("submissions").insert(withIntegrity as any).select().single();
+  // Fall back gracefully if the integrity columns are not in the schema cache yet.
+  if (res.error && /violations|termination_reason|column|schema cache/i.test(res.error.message || "")) {
+    res = await supabase.from("submissions").insert(base).select().single();
+  }
+  return { data: res.data, error: res.error };
+}
+
+/**
+ * Attaches the generated AI report to an already-saved submission row.
+ * Updates only ai_report — never the answers / score / integrity columns — so
+ * it is safe to run asynchronously after the submission has been persisted.
+ */
+export async function updateSubmissionReport(id: string, aiReport: string) {
+  return supabase.from("submissions").update({ ai_report: aiReport }).eq("id", id);
+}
+
+// ---------- Exam sessions (Super Admin generated unlock codes) ----------
+
+export interface ExamSession {
+  id: string;
+  campus_id: string | null;
+  skill_id: string;
+  level_id: string | null;
+  quiz_number: number;
+  code: string;
+  duration_sec: number;
+  max_attempts: number;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface CreateExamSessionInput {
+  campusId: string | null;
+  skillId: string;
+  levelId: string | null;
+  quizNumber: number;
+  durationSec: number;
+  maxAttempts: number;
+  startsAt: string; // ISO
+  endsAt: string;   // ISO
+  createdBy?: string | null;
+}
+
+export interface ExamSessionValidation {
+  valid: boolean;
+  message: string;
+  session: ExamSession | null;
+}
+
+// exam_sessions postdates the generated Supabase types — access it untyped.
+const examSessions = () => (supabase as any).from("exam_sessions");
+
+/** Random, unambiguous, uppercase alphanumeric code (excludes 0/O/1/I). */
+export function generateExamSessionCode(length = 6): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const size = Math.max(6, length);
+  const bytes = new Uint32Array(size);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < size; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+/** Creates an exam session, generating a unique code (retries on collision). */
+export async function createExamSession(
+  input: CreateExamSessionInput,
+): Promise<{ data: ExamSession | null; error: string | null }> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const code = generateExamSessionCode();
+    const { data, error } = await examSessions()
+      .insert({
+        campus_id: input.campusId,
+        skill_id: input.skillId,
+        level_id: input.levelId,
+        quiz_number: input.quizNumber,
+        code,
+        duration_sec: input.durationSec,
+        max_attempts: input.maxAttempts,
+        starts_at: input.startsAt,
+        ends_at: input.endsAt,
+        status: "active",
+        created_by: input.createdBy ?? null,
+      })
+      .select()
+      .single();
+    if (!error && data) return { data: data as ExamSession, error: null };
+    // Unique-violation on code → regenerate and retry; anything else → report.
+    if (error && /duplicate|unique/i.test(error.message || "")) continue;
+    return { data: null, error: error?.message || "Could not create the exam session." };
+  }
+  return { data: null, error: "Could not generate a unique code — please try again." };
+}
+
+/** Sessions visible to an admin. A campus admin sees only their campus + global. */
+export async function fetchActiveExamSessionsForAdmin(opts: {
+  isSuper: boolean;
+  campusId: string | null;
+}): Promise<ExamSession[]> {
+  let q = examSessions().select("*").order("created_at", { ascending: false });
+  if (!opts.isSuper && opts.campusId) {
+    q = q.or(`campus_id.eq.${opts.campusId},campus_id.is.null`);
+  }
+  const { data, error } = await q;
+  if (error) { console.error(error); return []; }
+  return (data || []) as ExamSession[];
+}
+
+/** Closes a session so its code can no longer start new exams. */
+export async function closeExamSession(sessionId: string) {
+  return examSessions().update({ status: "closed" }).eq("id", sessionId);
+}
+
+/** Validates a code a student typed before starting an exam. */
+export async function validateExamSessionCode(input: {
+  code: string;
+  campusId: string | null;
+  skillId: string;
+  levelId: string | null;
+  quizNumber: number;
+}): Promise<ExamSessionValidation> {
+  const code = input.code.trim().toUpperCase();
+  if (!code) return { valid: false, message: "Enter the exam session code.", session: null };
+
+  const { data, error } = await examSessions().select("*").eq("code", code).maybeSingle();
+  if (error) return { valid: false, message: "Could not verify the code — please try again.", session: null };
+  if (!data) return { valid: false, message: "Invalid exam code. Check with your invigilator.", session: null };
+
+  const s = data as ExamSession;
+  if (s.status !== "active") return { valid: false, message: "This exam session has been closed.", session: null };
+
+  const now = Date.now();
+  if (now < new Date(s.starts_at).getTime())
+    return { valid: false, message: "This exam has not started yet.", session: null };
+  if (now > new Date(s.ends_at).getTime())
+    return { valid: false, message: "This exam code has expired.", session: null };
+
+  if (s.campus_id && input.campusId && s.campus_id !== input.campusId)
+    return { valid: false, message: "This code is not valid for your campus.", session: null };
+  if (s.skill_id !== input.skillId)
+    return { valid: false, message: "This code is for a different skill.", session: null };
+  if (s.level_id && input.levelId && s.level_id !== input.levelId)
+    return { valid: false, message: "This code is for a different level.", session: null };
+  if (s.quiz_number !== input.quizNumber)
+    return { valid: false, message: "This code is for a different quiz.", session: null };
+
+  return { valid: true, message: "Code accepted.", session: s };
+}
+
+/**
+ * Counts how many times a student has already attempted a specific quiz.
+ * Used to enforce the one-attempt rule (configurable via skills.max_attempts).
+ */
+export async function countAttempts(
+  studentUuid: string,
+  skillId: string,
+  levelId: string,
+  quizNumber: number,
+): Promise<number> {
+  if (!studentUuid || !skillId || !levelId) return 0;
+  const { count, error } = await supabase
     .from("submissions")
-    .insert({
-      student_name: sub.studentName,
-      student_id: sub.studentExternalId || "",
-      student_uuid: sub.studentUuid || null,
-      campus_id: sub.campusId || null,
-      skill_id: sub.skillId || null,
-      level_id: sub.levelId || null,
-      quiz_number: sub.quizNumber || 1,
-      quiz_name: sub.quizName,
-      duration_sec: sub.durationSec,
-      mcq_correct: sub.mcqCorrect,
-      mcq_total: sub.mcqTotal,
-      score_pct: sub.scorePct,
-      weakest_kc: sub.weakestKC,
-      kc_scores: sub.kcScores as any,
-      ai_report: sub.aiReport,
-      answers: sub.answers as any,
-    })
-    .select()
-    .single();
-  return { data, error };
+    .select("id", { count: "exact", head: true })
+    .eq("student_uuid", studentUuid)
+    .eq("skill_id", skillId)
+    .eq("level_id", levelId)
+    .eq("quiz_number", quizNumber);
+  if (error) { console.error(error); return 0; }
+  return count ?? 0;
 }
 
 export async function fetchSubmissions(filters?: { campusId?: string; studentUuid?: string; skillId?: string }): Promise<DBSubmission[]> {

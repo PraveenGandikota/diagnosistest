@@ -9,42 +9,135 @@ export interface AnswerRecord {
 
 export interface QuizSession {
   studentName: string;
+  /** External Student ID (display) — saved with the submission. */
+  studentExternalId: string | null;
+  /** students.id — links the submission to the student row for analytics. */
+  studentUuid: string | null;
+  /** campuses.id — links the submission to the campus for campus analytics. */
+  campusId: string | null;
   quizName: string;
   skillId: string | null;
   levelId: string | null;
   quizNumber: number;
   questions: Question[];
   currentIdx: number;
+  /** Selected option index per question (parallel to `questions`); null = unanswered. */
+  selections: (number | null)[];
+  /** Whether a question has been viewed at least once (parallel to `questions`). */
+  visited: boolean[];
+  /** Built by finalize() at submit time — consumed by the Result page. */
   answers: AnswerRecord[];
   startTime: number | null;
   finished: boolean;
+  /** Internal anti-cheat counter — never shown to the student as a live badge. */
+  violations: number;
+  /** Set when the exam was auto-submitted by the proctoring rules. */
+  terminationReason: string | null;
 }
 
 interface State {
   session: QuizSession;
   setStudent: (name: string) => void;
-  startQuiz: (questions: Question[], info: { quizName: string; skillId: string | null; levelId: string | null; quizNumber: number }) => void;
+  startQuiz: (
+    questions: Question[],
+    info: {
+      quizName: string;
+      skillId: string | null;
+      levelId: string | null;
+      quizNumber: number;
+      studentExternalId: string | null;
+      studentUuid: string | null;
+      campusId: string | null;
+    },
+  ) => void;
+  selectOption: (optionIdx: number) => void;
+  goToQuestion: (idx: number) => void;
+  /** Increments the internal violation counter and returns the new total. */
+  recordViolation: () => number;
+  setTermination: (reason: string) => void;
+  /** Converts `selections` into the `answers` array the Result page reads. */
+  finalize: () => void;
+  reset: () => void;
+  // --- legacy helpers kept for backward compatibility ---
   recordAnswer: (a: AnswerRecord) => void;
   nextQuestion: () => void;
   finish: () => void;
-  reset: () => void;
 }
 
 const empty: QuizSession = {
-  studentName: "", quizName: "", skillId: null, levelId: null, quizNumber: 1,
-  questions: [], currentIdx: 0, answers: [], startTime: null, finished: false,
+  studentName: "", studentExternalId: null, studentUuid: null, campusId: null,
+  quizName: "", skillId: null, levelId: null, quizNumber: 1,
+  questions: [], currentIdx: 0, selections: [], visited: [], answers: [],
+  startTime: null, finished: false, violations: 0, terminationReason: null,
 };
 
 export const useQuiz = create<State>((set) => ({
   session: empty,
+
   setStudent: (name) => set((s) => ({ session: { ...s.session, studentName: name } })),
-  startQuiz: (questions, info) => set((s) => ({
-    session: { ...s.session, ...info, questions: shuffleAll(questions), currentIdx: 0, answers: [], finished: false, startTime: Date.now() },
-  })),
+
+  startQuiz: (questions, info) => set((s) => {
+    const shuffled = shuffleAll(questions);
+    return {
+      session: {
+        ...s.session, ...info,
+        questions: shuffled,
+        currentIdx: 0,
+        selections: shuffled.map(() => null),
+        visited: shuffled.map((_, i) => i === 0),
+        answers: [],
+        finished: false,
+        startTime: Date.now(),
+        violations: 0,
+        terminationReason: null,
+      },
+    };
+  }),
+
+  selectOption: (optionIdx) => set((s) => {
+    const selections = [...s.session.selections];
+    selections[s.session.currentIdx] = optionIdx;
+    return { session: { ...s.session, selections } };
+  }),
+
+  goToQuestion: (idx) => set((s) => {
+    if (idx < 0 || idx >= s.session.questions.length) return s;
+    const visited = [...s.session.visited];
+    visited[idx] = true;
+    return { session: { ...s.session, currentIdx: idx, visited } };
+  }),
+
+  recordViolation: () => {
+    let count = 0;
+    set((s) => {
+      count = s.session.violations + 1;
+      return { session: { ...s.session, violations: count } };
+    });
+    return count;
+  },
+
+  setTermination: (reason) => set((s) => ({ session: { ...s.session, terminationReason: reason } })),
+
+  finalize: () => set((s) => {
+    const answers: AnswerRecord[] = s.session.questions.map((q, i) => {
+      const sel = s.session.selections[i];
+      return {
+        qid: q.id, kc: q.kc, kcName: q.kcName, type: q.type,
+        question: q.question, options: q.options,
+        selectedIdx: sel ?? -1,
+        correctIdx: q.correct,
+        correct: sel !== null && sel === q.correct,
+      };
+    });
+    return { session: { ...s.session, answers, finished: true } };
+  }),
+
+  reset: () => set({ session: empty }),
+
+  // --- legacy ---
   recordAnswer: (a) => set((s) => ({ session: { ...s.session, answers: [...s.session.answers, a] } })),
   nextQuestion: () => set((s) => ({ session: { ...s.session, currentIdx: s.session.currentIdx + 1 } })),
   finish: () => set((s) => ({ session: { ...s.session, finished: true } })),
-  reset: () => set({ session: empty }),
 }));
 
 export function computeKCScores(answers: AnswerRecord[]): Record<string, { correct: number; total: number }> {

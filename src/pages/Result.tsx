@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, ExternalLink, RotateCcw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, ExternalLink, RotateCcw, ShieldAlert, Sparkles, X } from "lucide-react";
 import { useAdminAccess } from "@/lib/admin-access";
 import { useQuiz } from "@/lib/quiz-store";
 import {
@@ -10,7 +10,7 @@ import {
   type ImprovementPlanItem,
   type ImprovementReport,
 } from "@/lib/student-feedback";
-import { fetchSkills, saveSubmission, type Skill } from "@/lib/quiz-db";
+import { fetchSkills, saveSubmission, updateSubmissionReport, type Skill } from "@/lib/quiz-db";
 import { useStudentSession } from "@/lib/student-session";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/config";
 import { PyHighlight } from "@/components/PyHighlight";
@@ -32,7 +32,6 @@ const Result = () => {
   const [error, setError] = useState<string | null>(null);
   const [openAnswer, setOpenAnswer] = useState<string | null>(null);
   const [skillName, setSkillName] = useState<string | null>(null);
-  const savedRef = useRef(false);
 
   useEffect(() => {
     if (!session.skillId) { setSkillName(null); return; }
@@ -122,37 +121,89 @@ const Result = () => {
     return () => { cancelled = true; };
   }, [durationSec, mcqCorrect, mcqTotal, scorePct, session.answers.length, session.quizName, topicBreakdown]);
 
-  // Save submission to Supabase once feedback is ready.
-  useEffect(() => {
-    if (savedRef.current || loading || session.answers.length === 0) return;
-    savedRef.current = true;
+  // ---- Submission persistence (independent of AI report generation) ----
+  const savedRef = useRef(false);        // a row was successfully inserted
+  const inFlightRef = useRef(false);     // an insert is currently running
+  const autoSaveRef = useRef(false);     // the one-time auto-save has been triggered
+  const reportSyncedRef = useRef(false); // the AI report has been attached to the row
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
-    const reportText = [
-      `SUMMARY\n${displayReport.summary}`,
-      `\nIMPROVEMENT PLAN\n${displayReport.improvementPlan.map((i) => `- ${i.topic}: ${i.recommendation}`).join("\n")}`,
-      `\nNEXT STEPS\n${displayReport.nextSteps.map((i) => `- ${i}`).join("\n")}`,
-    ].join("\n");
+  const persistSubmission = useCallback(async () => {
+    // savedRef → already persisted; inFlightRef → an insert is in progress.
+    if (savedRef.current || inFlightRef.current || session.answers.length === 0) return;
+    inFlightRef.current = true;
+    setSaving(true);
+    setSaveFailed(false);
 
     const kcScores = topicBreakdown.reduce<Record<string, { correct: number; total: number }>>((acc, t) => {
       acc[t.topic] = { correct: t.correct, total: t.total };
       return acc;
     }, {});
 
-    saveSubmission({
-      studentName: session.studentName || "Anonymous",
-      quizName: session.quizName || "Module Quiz",
-      durationSec, mcqCorrect, mcqTotal, scorePct,
-      weakestKC: topicsToRevisit[0]?.topic || "--",
-      missedKCs: topicsToRevisit.map((t) => t.topic),
-      kcScores,
-      aiReport: reportText,
-      answers: session.answers.map((a) => ({
-        qid: a.qid, kc: a.kc, kcName: a.kcName, type: a.type,
-        question: a.question, correct: a.correct,
-        selectedIdx: a.selectedIdx, correctIdx: a.correctIdx, options: a.options,
-      })),
-    }).catch((e) => console.error("saveSubmission failed", e));
-  }, [displayReport, durationSec, loading, mcqCorrect, mcqTotal, scorePct, session.answers, session.quizName, session.studentName, topicBreakdown, topicsToRevisit]);
+    try {
+      const { data, error } = await saveSubmission({
+        studentName: session.studentName || "Anonymous",
+        studentExternalId: session.studentExternalId ?? undefined,
+        studentUuid: session.studentUuid,
+        campusId: session.campusId,
+        quizName: session.quizName || "Module Quiz",
+        skillId: session.skillId,
+        levelId: session.levelId,
+        quizNumber: session.quizNumber,
+        durationSec, mcqCorrect, mcqTotal, scorePct,
+        weakestKC: topicsToRevisit[0]?.topic || "--",
+        missedKCs: topicsToRevisit.map((t) => t.topic),
+        kcScores,
+        aiReport: "", // attached asynchronously once the AI report resolves
+        violations: session.violations,
+        terminationReason: session.terminationReason,
+        answers: session.answers.map((a) => ({
+          qid: a.qid, kc: a.kc, kcName: a.kcName, type: a.type,
+          question: a.question, correct: a.correct,
+          selectedIdx: a.selectedIdx, correctIdx: a.correctIdx, options: a.options,
+        })),
+      });
+      if (error || !data) {
+        console.error("saveSubmission failed", error);
+        setSaveFailed(true);
+      } else {
+        savedRef.current = true;
+        setSubmissionId((data as { id: string }).id);
+      }
+    } catch (e) {
+      console.error("saveSubmission threw", e);
+      setSaveFailed(true);
+    } finally {
+      inFlightRef.current = false;
+      setSaving(false);
+    }
+  }, [
+    durationSec, mcqCorrect, mcqTotal, scorePct, topicBreakdown, topicsToRevisit,
+    session.answers, session.studentName, session.studentExternalId, session.studentUuid,
+    session.campusId, session.quizName, session.skillId, session.levelId, session.quizNumber,
+    session.violations, session.terminationReason,
+  ]);
+
+  // Save the attempt immediately on mount — does NOT wait for the AI report.
+  useEffect(() => {
+    if (autoSaveRef.current || session.answers.length === 0) return;
+    autoSaveRef.current = true;
+    persistSubmission();
+  }, [persistSubmission, session.answers.length]);
+
+  // Once the report (AI or local fallback) is final, attach it to the saved row.
+  useEffect(() => {
+    if (reportSyncedRef.current || loading || !submissionId) return;
+    reportSyncedRef.current = true;
+    const reportText = [
+      `SUMMARY\n${displayReport.summary}`,
+      `\nIMPROVEMENT PLAN\n${displayReport.improvementPlan.map((i) => `- ${i.topic}: ${i.recommendation}`).join("\n")}`,
+      `\nNEXT STEPS\n${displayReport.nextSteps.map((i) => `- ${i}`).join("\n")}`,
+    ].join("\n");
+    updateSubmissionReport(submissionId, reportText).catch((e) => console.error("ai_report update failed", e));
+  }, [loading, submissionId, displayReport]);
 
   if (session.answers.length === 0) {
     return (
@@ -184,6 +235,32 @@ const Result = () => {
             <span className={scorePct >= 60 ? "font-semibold text-success" : "font-semibold text-destructive"}>Score {scorePct}%</span>
           </div>
         </div>
+
+        {saveFailed && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm">
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              <span className="font-medium">Your attempt could not be saved. Retry.</span>
+            </div>
+            <button
+              onClick={() => persistSubmission()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              <RotateCcw className="h-4 w-4" /> {saving ? "Saving…" : "Retry"}
+            </button>
+          </div>
+        )}
+
+        {session.terminationReason && (
+          <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm">
+            <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive" />
+            <div>
+              <div className="font-semibold text-destructive">Exam auto-submitted</div>
+              <p className="text-muted-foreground">{session.terminationReason}</p>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-3">
           <Stat label="Correct" value={`${mcqCorrect}/${mcqTotal}`} sub={`${Math.round((mcqCorrect / mcqTotal) * 100)}%`} />
@@ -399,6 +476,7 @@ const Stat = ({ label, value, sub }: { label: string; value: string; sub: string
 );
 
 function formatChoice(idx: number, options: string[]) {
+  if (idx < 0) return "Not answered";
   const opt = options[idx] ?? "—";
   return `${String.fromCharCode(65 + idx)} · ${opt}`;
 }
