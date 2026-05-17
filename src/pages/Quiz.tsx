@@ -89,7 +89,7 @@ const Quiz = () => {
   }, [finalize, navigate, setTermination]);
 
   const handleExpire = useCallback(() => {
-    submitExam("Time expired — the exam was auto-submitted.");
+    submitExam("time_expired");
   }, [submitExam]);
 
   const remaining = useCountdown(session.startTime, durationSec, phase === "running" && hasTimer, handleExpire);
@@ -99,8 +99,7 @@ const Quiz = () => {
     violationLock.current = true;
     const count = recordViolation();
     if (count >= MAX_VIOLATIONS) {
-      const what = kind === "fullscreen" ? "exited fullscreen" : "switched away from the exam";
-      submitExam(`Exam auto-submitted after ${MAX_VIOLATIONS} integrity violations (last: ${what}).`);
+      submitExam("integrity_violation");
       return;
     }
     setViolationModal({ count, kind });
@@ -464,8 +463,8 @@ const Quiz = () => {
                 </h3>
                 <p className="mb-2 text-sm text-muted-foreground">
                   {violationModal.kind === "fullscreen"
-                    ? "You exited fullscreen mode. Please continue in fullscreen to proceed with the exam."
-                    : "You navigated away from the exam. Please stay on this screen and continue in fullscreen."}
+                    ? "You exited fullscreen. Please continue in fullscreen to proceed."
+                    : "You navigated away from the exam. Please continue in fullscreen to proceed."}
                 </p>
                 <p className="mb-5 text-sm font-medium text-destructive">
                   {isFinal

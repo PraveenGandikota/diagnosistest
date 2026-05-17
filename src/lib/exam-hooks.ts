@@ -38,13 +38,26 @@ export function useFullscreenGuard(active: boolean, onExit: () => void) {
   }, [active, onExit]);
 }
 
-/** Fires `onHidden` when the user switches tab / minimises the window during the exam. */
+/**
+ * Fires `onHidden` when the user leaves the exam — tab switch / minimise
+ * (`visibilitychange`) or alt-tab to another window (`blur`). The blur path is
+ * confirmed on the next tick with `document.hasFocus()` so a transient blur
+ * (e.g. a fullscreen transition) is not counted as a false positive. The
+ * caller is expected to de-duplicate, since one incident can fire both events.
+ */
 export function useTabSwitchGuard(active: boolean, onHidden: () => void) {
   useEffect(() => {
     if (!active) return;
-    const handler = () => { if (document.hidden) onHidden(); };
-    document.addEventListener("visibilitychange", handler);
-    return () => document.removeEventListener("visibilitychange", handler);
+    const onVisibility = () => { if (document.hidden) onHidden(); };
+    const onBlur = () => {
+      window.setTimeout(() => { if (!document.hasFocus()) onHidden(); }, 150);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [active, onHidden]);
 }
 
