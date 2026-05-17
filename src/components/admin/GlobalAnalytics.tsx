@@ -243,14 +243,14 @@ export const GlobalAnalytics = () => {
 
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Campus comparison chart */}
-            <DashboardSection title="Campus performance comparison" description="Average score per campus.">
-              <ChartBox>
+            <DashboardSection title="Campus performance comparison" description="Average score per campus — full name shown on hover.">
+              <HBarBox count={ranking.length}>
                 <BarChart layout="vertical"
                   data={ranking.map((r) => ({ name: campusName(r.campusId), score: r.avgScore }))}
                   margin={{ left: 8, right: 16 }}>
                   <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
                   <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 11 }} interval={0} tickFormatter={truncateLabel} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, "Avg score"]} />
                   <Bar dataKey="score" radius={[0, 4, 4, 0]}>
                     {ranking.map((r, i) => (
@@ -258,7 +258,7 @@ export const GlobalAnalytics = () => {
                     ))}
                   </Bar>
                 </BarChart>
-              </ChartBox>
+              </HBarBox>
             </DashboardSection>
 
             {/* Submission growth */}
@@ -279,13 +279,13 @@ export const GlobalAnalytics = () => {
             {/* Skill averages */}
             <DashboardSection title="Global skill performance" description="Average score per skill. Click a bar to filter.">
               {skillAverages.length === 0 ? <EmptyEmbed text="No skill data." /> : (
-                <ChartBox>
+                <HBarBox count={skillAverages.length}>
                   <BarChart layout="vertical"
                     data={skillAverages.map((s) => ({ id: s.skillId, name: skillName(s.skillId), score: s.avgScore }))}
                     margin={{ left: 8, right: 16 }}>
                     <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
                     <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 11 }} interval={0} tickFormatter={truncateLabel} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, "Avg score"]} />
                     <Bar dataKey="score" radius={[0, 4, 4, 0]} onClick={(d: { id?: string }) => d?.id && setSkillFilter(d.id)}
                       className="cursor-pointer">
@@ -294,7 +294,7 @@ export const GlobalAnalytics = () => {
                       ))}
                     </Bar>
                   </BarChart>
-                </ChartBox>
+                </HBarBox>
               )}
             </DashboardSection>
 
@@ -306,7 +306,7 @@ export const GlobalAnalytics = () => {
                     data={skillPassFail.map((s) => ({ name: skillName(s.skillId), Pass: s.pass, Fail: s.fail }))}
                     margin={{ left: 4, right: 16 }}>
                     <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={64} tickFormatter={truncateLabel} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                     <Tooltip contentStyle={tooltipStyle} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -377,7 +377,7 @@ export const GlobalAnalytics = () => {
                     <BarChart data={ranking.map((r) => ({ name: campusName(r.campusId), violations: r.violations }))}
                       margin={{ left: 4, right: 16 }}>
                       <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                      <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={64} tickFormatter={truncateLabel} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                       <Tooltip contentStyle={tooltipStyle} />
                       <Bar dataKey="violations" fill={COLOR.destructive} radius={[4, 4, 0, 0]} />
@@ -417,6 +417,21 @@ const ExportButton = ({ label, onClick }: { label: string; onClick: () => void }
 const ChartBox = ({ children, height = "h-64" }: { children: React.ReactElement; height?: string }) => (
   <div className={height}>
     <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
+  </div>
+);
+
+// Shortens a long axis label; the full value still shows in the chart tooltip.
+const truncateLabel = (s: unknown) => {
+  const str = String(s ?? "");
+  return str.length > 18 ? `${str.slice(0, 17)}…` : str;
+};
+
+// Horizontal bar chart whose height grows with the row count, scrolling past a cap.
+const HBarBox = ({ count, children }: { count: number; children: React.ReactElement }) => (
+  <div className="max-h-[440px] overflow-y-auto">
+    <div style={{ height: Math.max(180, count * 38 + 28) }}>
+      <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
+    </div>
   </div>
 );
 

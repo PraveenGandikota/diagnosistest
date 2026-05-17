@@ -543,12 +543,22 @@ export async function validateExamSessionCode(input: {
 
   if (s.campus_id && input.campusId && s.campus_id !== input.campusId)
     return { valid: false, message: "This code is not valid for your campus.", session: null };
+
   if (s.skill_id !== input.skillId)
     return { valid: false, message: "This code is for a different skill.", session: null };
-  if (s.level_id && input.levelId && s.level_id !== input.levelId)
-    return { valid: false, message: "This code is for a different level.", session: null };
-  if (s.quiz_number !== input.quizNumber)
-    return { valid: false, message: "This code is for a different quiz.", session: null };
+
+  // Level is enforced only when the session targets a specific level.
+  // A session with no level_id ("Any level") accepts any level.
+  if (s.level_id) {
+    if (!input.levelId || input.levelId !== s.level_id)
+      return { valid: false, message: "This code is for a different level (L1/L2).", session: null };
+  }
+
+  // Quiz number — coerce both sides to numbers to avoid string/number mismatch.
+  const sessionQuiz = Number(s.quiz_number);
+  const attemptQuiz = Number(input.quizNumber);
+  if (Number.isFinite(sessionQuiz) && Number.isFinite(attemptQuiz) && sessionQuiz !== attemptQuiz)
+    return { valid: false, message: `This code is for Quiz ${sessionQuiz}, not Quiz ${attemptQuiz}.`, session: null };
 
   return { valid: true, message: "Code accepted.", session: s };
 }

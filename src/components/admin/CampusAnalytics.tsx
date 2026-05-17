@@ -188,24 +188,33 @@ export const CampusAnalytics = ({ campusId, campusName }: Props) => {
             {skillAverages.length === 0 ? (
               <EmptyEmbed text="No submissions found for any skill." />
             ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    layout="vertical"
-                    data={skillAverages.map((s) => ({ name: skillName(s.skillId), score: s.avgScore }))}
-                    margin={{ left: 8, right: 16 }}
-                  >
-                    <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
-                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, "Avg score"]} />
-                    <Bar dataKey="score" radius={[0, 4, 4, 0]}>
-                      {skillAverages.map((s, i) => (
-                        <Cell key={i} fill={s.avgScore >= PASS_MARK ? COLOR.success : COLOR.destructive} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="max-h-[440px] overflow-y-auto">
+                <div style={{ height: Math.max(180, skillAverages.length * 38 + 28) }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      layout="vertical"
+                      data={skillAverages.map((s) => ({ name: skillName(s.skillId), score: s.avgScore }))}
+                      margin={{ left: 8, right: 16 }}
+                    >
+                      <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
+                      <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
+                      <YAxis
+                        type="category" dataKey="name" width={130} tick={{ fontSize: 11 }}
+                        interval={0}
+                        tickFormatter={(s: unknown) => {
+                          const str = String(s ?? "");
+                          return str.length > 18 ? `${str.slice(0, 17)}…` : str;
+                        }}
+                      />
+                      <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, "Avg score"]} />
+                      <Bar dataKey="score" radius={[0, 4, 4, 0]}>
+                        {skillAverages.map((s, i) => (
+                          <Cell key={i} fill={s.avgScore >= PASS_MARK ? COLOR.success : COLOR.destructive} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             )}
           </DashboardSection>

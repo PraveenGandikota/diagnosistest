@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Building2, ClipboardList, Download, FileWarning, GraduationCap, Layers, LogOut, ShieldCheck, Timer, Trash2, TrendingUp, Upload, Users, Plus } from "lucide-react";
 import { AdminAccessGate } from "@/components/AdminAccessGate";
 import { StatCard } from "@/components/dashboard/StatCard";
@@ -25,6 +26,16 @@ import { toast } from "sonner";
 
 type Tab = "overview" | "students" | "submissions" | "uploads" | "campuses" | "exams" | "sessions";
 
+// URL slug <-> internal tab id (the exam-session tab reads as "exam-codes" in the URL).
+const TAB_SLUGS: Record<Tab, string> = {
+  overview: "overview", students: "students", submissions: "submissions",
+  uploads: "uploads", campuses: "campuses", exams: "exams", sessions: "exam-codes",
+};
+const SLUG_TO_TAB: Record<string, Tab> = {
+  overview: "overview", students: "students", submissions: "submissions",
+  uploads: "uploads", campuses: "campuses", exams: "exams", "exam-codes": "sessions",
+};
+
 const Admin = () => (
   <AdminAccessGate title="Admin dashboard" description="Enter your access code (super admin or campus admin).">
     {({ lock }) => <Dashboard onLock={lock} />}
@@ -33,13 +44,19 @@ const Admin = () => (
 
 const Dashboard = ({ onLock }: { onLock: () => void }) => {
   const { session, isSuper } = useAdminAccess();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [params, setParams] = useSearchParams();
   const [refreshKey, setRefreshKey] = useState(0);
   const refresh = () => setRefreshKey((k) => k + 1);
 
+  // The legacy per-skill "Exams" tab is retired — exam timing/attempts now live in Exam Codes.
   const tabs: Tab[] = isSuper
-    ? ["overview", "students", "submissions", "uploads", "campuses", "exams", "sessions"]
+    ? ["overview", "students", "submissions", "uploads", "campuses", "sessions"]
     : ["overview", "students", "submissions", "sessions"];
+
+  // Active tab is driven by the URL (?tab=) and clamped to what this role may see.
+  const requestedTab = SLUG_TO_TAB[params.get("tab") ?? ""];
+  const tab: Tab = requestedTab && tabs.includes(requestedTab) ? requestedTab : "overview";
+  const setTab = (next: Tab) => setParams({ tab: TAB_SLUGS[next] });
 
   const tabLabels: Record<Tab, string> = {
     overview: "Overview",
@@ -72,7 +89,7 @@ const Dashboard = ({ onLock }: { onLock: () => void }) => {
           </button>
         </div>
 
-        <div className="mb-6 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div className="sticky top-14 z-20 -mx-4 mb-6 overflow-x-auto bg-background px-4 md:top-0 sm:mx-0 sm:px-0">
           <div className="flex min-w-max gap-1 border-b border-border">
             {tabs.map((t) => (
               <button
@@ -97,7 +114,6 @@ const Dashboard = ({ onLock }: { onLock: () => void }) => {
         {tab === "submissions" && <SubmissionsTab refreshKey={refreshKey} onChange={refresh} campusFilter={isSuper ? null : session?.campusId ?? null} />}
         {tab === "uploads" && isSuper && <UploadsTab onChange={refresh} />}
         {tab === "campuses" && isSuper && <CampusesTab refreshKey={refreshKey} onChange={refresh} />}
-        {tab === "exams" && isSuper && <ExamsTab refreshKey={refreshKey} />}
         {tab === "sessions" && (
           <ExamSessionsTab
             refreshKey={refreshKey}
@@ -1076,7 +1092,7 @@ const ExamSessionsTab = ({
       {isSuper && (
         <DashboardSection
           title="Create exam session"
-          description="Generates a unique unlock code for a campus, skill, level and quiz. Campus admins announce the code to students."
+          description="The single source of truth for exam timing — duration per student, max attempts, and the active code window are all set here. Generates a unique unlock code campus admins announce to students."
         >
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <SessionField label="Campus">

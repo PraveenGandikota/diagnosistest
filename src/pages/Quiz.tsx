@@ -44,6 +44,7 @@ const Quiz = () => {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [violationModal, setViolationModal] = useState<{ count: number; kind: ViolationKind } | null>(null);
+  const [navExitModal, setNavExitModal] = useState(false);
 
   // Prevents one incident (an Esc-then-tab burst) from counting multiple times.
   const violationLock = useRef(false);
@@ -51,7 +52,10 @@ const Quiz = () => {
   const durationSec = validatedSession?.duration_sec ?? 0;
   const hasTimer = durationSec > 0;
   const maxAttempts = validatedSession?.max_attempts ?? (skill?.max_attempts ?? 1);
-  const attemptsExhausted = attemptsUsed >= maxAttempts;
+  // The attempt limit is only known once a session code is validated, so the
+  // "no attempts left" screen is shown only after validation — never before.
+  const attemptsExhausted = !!validatedSession && attemptsUsed >= validatedSession.max_attempts;
+  const attemptsRemaining = validatedSession ? Math.max(0, validatedSession.max_attempts - attemptsUsed) : 0;
 
   const elapsed = useElapsed(session.startTime, phase === "running");
 
@@ -113,6 +117,26 @@ const Quiz = () => {
     setViolationModal(null);
     violationLock.current = false;
   };
+
+  // Block leaving an active exam via browser Back or refresh/close.
+  useEffect(() => {
+    if (phase !== "running") return;
+    window.history.pushState(null, "", window.location.href);
+    const onPopState = () => {
+      window.history.pushState(null, "", window.location.href);
+      setNavExitModal(true);
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, [phase]);
 
   // Step 1: validate the exam session code. An exam cannot start without one.
   const handleValidateCode = async () => {
@@ -207,7 +231,7 @@ const Quiz = () => {
                       {Math.round(validatedSession.duration_sec / 60)} minutes
                     </span>
                     <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 font-medium">
-                      {validatedSession.max_attempts} attempt{validatedSession.max_attempts === 1 ? "" : "s"}
+                      Attempt {attemptsUsed + 1} of {validatedSession.max_attempts}
                     </span>
                   </>
                 ) : (
@@ -241,7 +265,9 @@ const Quiz = () => {
 
               {validatedSession ? (
                 <p className="mb-5 text-[11px] font-medium text-success">
-                  Code accepted — {Math.round(validatedSession.duration_sec / 60)} minute exam. You can start now.
+                  Code accepted — {Math.round(validatedSession.duration_sec / 60)} minute exam ·{" "}
+                  {attemptsRemaining} attempt{attemptsRemaining === 1 ? "" : "s"} remaining
+                  {attemptsUsed > 0 ? ` (${attemptsUsed} of ${validatedSession.max_attempts} used)` : ""}.
                 </p>
               ) : (
                 <p className="mb-5 text-[11px] text-muted-foreground">
@@ -484,6 +510,33 @@ const Quiz = () => {
               </>
             );
           })()}
+        </ModalShell>
+      )}
+
+      {/* Navigation-exit warning (browser Back during an active exam) */}
+      {navExitModal && (
+        <ModalShell>
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-warning/10 text-warning">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <h3 className="mb-1 text-lg font-semibold">Leave the exam?</h3>
+          <p className="mb-5 text-sm text-muted-foreground">
+            You are currently taking an exam. Leaving this page will auto-submit your current answers.
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => setNavExitModal(false)}
+              className="rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold hover:bg-muted/40"
+            >
+              Continue Exam
+            </button>
+            <button
+              onClick={() => submitExam("navigation_exit")}
+              className="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground hover:opacity-90"
+            >
+              <Send className="h-4 w-4" /> Submit and Leave
+            </button>
+          </div>
         </ModalShell>
       )}
     </div>
