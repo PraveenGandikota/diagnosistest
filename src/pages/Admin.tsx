@@ -19,6 +19,8 @@ import { downloadQuestionTemplate, downloadStudentTemplate } from "@/lib/csv-tem
 import { parseQuestionCsv, parseStudentCsv } from "@/lib/csv-import";
 import { useAdminAccess } from "@/lib/admin-access";
 import type { Question } from "@/lib/quiz-types";
+import { CampusAnalytics } from "@/components/admin/CampusAnalytics";
+import { GlobalAnalytics } from "@/components/admin/GlobalAnalytics";
 import { toast } from "sonner";
 
 type Tab = "overview" | "students" | "submissions" | "uploads" | "campuses" | "exams" | "sessions";
@@ -86,7 +88,11 @@ const Dashboard = ({ onLock }: { onLock: () => void }) => {
           </div>
         </div>
 
-        {tab === "overview" && <Overview refreshKey={refreshKey} campusFilter={isSuper ? null : session?.campusId ?? null} isSuper={isSuper} campusName={session?.campusName ?? null} />}
+        {tab === "overview" && (
+          !isSuper && session?.campusId
+            ? <CampusAnalytics campusId={session.campusId} campusName={session.campusName ?? "Your campus"} />
+            : <GlobalAnalytics />
+        )}
         {tab === "students" && <StudentsTab refreshKey={refreshKey} onChange={refresh} campusFilter={isSuper ? null : session?.campusId ?? null} isSuper={isSuper} />}
         {tab === "submissions" && <SubmissionsTab refreshKey={refreshKey} onChange={refresh} campusFilter={isSuper ? null : session?.campusId ?? null} />}
         {tab === "uploads" && isSuper && <UploadsTab onChange={refresh} />}
@@ -855,7 +861,7 @@ const CampusesTab = ({ refreshKey, onChange }: { refreshKey: number; onChange: (
 
 // ---------- Exams config (Super Admin only) ----------
 
-interface ExamDraft { code: string; duration: string; attempts: string; }
+interface ExamDraft { duration: string; attempts: string; }
 
 const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -870,7 +876,6 @@ const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
       const next: Record<string, ExamDraft> = {};
       list.forEach((s) => {
         next[s.id] = {
-          code: s.exam_access_code ?? "",
           duration: String(s.exam_duration_min ?? 30),
           attempts: String(s.max_attempts ?? 1),
         };
@@ -891,7 +896,6 @@ const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
     if (!Number.isFinite(attempts) || attempts < 1) { toast.error("Attempts must be at least 1."); return; }
     setSavingId(skillId);
     const { error } = await updateSkillExamConfig(skillId, {
-      exam_access_code: d.code.trim() ? d.code.trim() : null,
       exam_duration_min: duration,
       max_attempts: attempts,
     });
@@ -906,7 +910,7 @@ const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
     <div className="space-y-4">
       <DashboardSection
         title="Exam settings per skill"
-        description="Set the unlock code students enter before an exam, the countdown duration (0 = untimed), and how many attempts are allowed per quiz."
+        description="Set the default countdown duration (0 = untimed) and attempts per quiz for each skill."
       >
         {skills.length === 0 ? (
           <EmptyState
@@ -920,7 +924,6 @@ const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
               <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left">Skill</th>
-                  <th className="px-4 py-3 text-left">Unlock code</th>
                   <th className="px-4 py-3 text-left">Duration (min)</th>
                   <th className="px-4 py-3 text-left">Max attempts</th>
                   <th className="px-4 py-3"></th>
@@ -928,18 +931,10 @@ const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
               </thead>
               <tbody>
                 {skills.map((s) => {
-                  const d = drafts[s.id] ?? { code: "", duration: "30", attempts: "1" };
+                  const d = drafts[s.id] ?? { duration: "30", attempts: "1" };
                   return (
                     <tr key={s.id} className="border-t border-border">
                       <td className="px-4 py-3 font-medium">{s.name}</td>
-                      <td className="px-4 py-3">
-                        <input
-                          value={d.code}
-                          onChange={(e) => setDraft(s.id, { code: e.target.value })}
-                          placeholder="Optional"
-                          className="w-32 rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs outline-none focus:border-primary"
-                        />
-                      </td>
                       <td className="px-4 py-3">
                         <input
                           type="number" min={0}
@@ -973,8 +968,9 @@ const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
           </ResponsiveTableWrapper>
         )}
       </DashboardSection>
-      <p className="text-xs text-muted-foreground">
-        Leave the unlock code empty to let students start without a code. Duration 0 makes the exam untimed.
+      <p className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+        Exam codes are now managed from the <span className="font-medium text-foreground">Exam Codes</span> tab.
+        These per-skill values are defaults only. Duration 0 makes the exam untimed.
       </p>
     </div>
   );
@@ -984,10 +980,11 @@ const ExamsTab = ({ refreshKey }: { refreshKey: number }) => {
 
 const sessionFieldCls = "w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20";
 
-const SessionField = ({ label, children }: { label: string; children: ReactNode }) => (
+const SessionField = ({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) => (
   <label className="block">
     <span className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
     {children}
+    {hint && <span className="mt-1 block text-[10px] leading-tight text-muted-foreground">{hint}</span>}
   </label>
 );
 
@@ -1100,22 +1097,25 @@ const ExamSessionsTab = ({
                 {skillLevels.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </SessionField>
-            <SessionField label="Quiz number">
+            <SessionField label="Quiz number" hint="Quiz/set number under this skill.">
               <input type="number" min={1} value={fQuiz} onChange={(e) => setFQuiz(e.target.value)} className={sessionFieldCls} />
             </SessionField>
-            <SessionField label="Duration (min)">
+            <SessionField label="Exam duration per student" hint="Timer for each student attempt, in minutes.">
               <input type="number" min={0} value={fDuration} onChange={(e) => setFDuration(e.target.value)} className={sessionFieldCls} />
             </SessionField>
-            <SessionField label="Max attempts">
+            <SessionField label="Max attempts" hint="Allowed attempts per student for this session.">
               <input type="number" min={1} value={fAttempts} onChange={(e) => setFAttempts(e.target.value)} className={sessionFieldCls} />
             </SessionField>
-            <SessionField label="Starts at">
+            <SessionField label="Code active from" hint="Students can start from this time.">
               <input type="datetime-local" value={fStart} onChange={(e) => setFStart(e.target.value)} className={sessionFieldCls} />
             </SessionField>
-            <SessionField label="Ends at">
+            <SessionField label="Code expires at" hint="Students cannot start after this time.">
               <input type="datetime-local" value={fEnd} onChange={(e) => setFEnd(e.target.value)} className={sessionFieldCls} />
             </SessionField>
           </div>
+          <p className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+            Students can start only during the active code window. Once started, each student gets the configured exam duration.
+          </p>
           <button
             onClick={handleCreate}
             disabled={creating}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, ExternalLink, RotateCcw, ShieldAlert, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, ExternalLink, RotateCcw, ShieldAlert, Sparkles, Target, X } from "lucide-react";
 import { useAdminAccess } from "@/lib/admin-access";
 import { useQuiz } from "@/lib/quiz-store";
 import {
@@ -16,6 +16,7 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/
 import { PyHighlight } from "@/components/PyHighlight";
 import { formatCodeBlock, hasRenderableCode } from "@/lib/code-format";
 import { getRemediationLink } from "@/lib/remediation-links";
+import { buildTopicStats, masteryLabel, type ReviewFilter } from "@/lib/submission-analytics";
 
 interface AIReport {
   summary: string;
@@ -32,6 +33,7 @@ const Result = () => {
   const [error, setError] = useState<string | null>(null);
   const [openAnswer, setOpenAnswer] = useState<string | null>(null);
   const [skillName, setSkillName] = useState<string | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
 
   useEffect(() => {
     if (!session.skillId) { setSkillName(null); return; }
@@ -67,6 +69,36 @@ const Result = () => {
   }, [session.answers, session.questions, session.startTime]);
 
   const displayReport: ImprovementReport = aiReport ?? fallbackReport;
+
+  // Topic stats keyed by the answer's own topic — used by the review filters.
+  const weakTopicKeys = useMemo(() => {
+    const stats = buildTopicStats(session.answers);
+    return new Set(stats.filter((t) => t.mastery === "Weak").map((t) => t.topic));
+  }, [session.answers]);
+
+  const answerTopicKey = (a: { kcName?: string; kc: string }) =>
+    (a.kcName || a.kc || "General").trim() || "General";
+
+  const filteredAnswers = session.answers.filter((a) => {
+    if (reviewFilter === "correct") return a.correct;
+    if (reviewFilter === "wrong") return !a.correct && a.selectedIdx >= 0;
+    if (reviewFilter === "unanswered") return a.selectedIdx < 0;
+    if (reviewFilter === "weak") return weakTopicKeys.has(answerTopicKey(a));
+    return true;
+  });
+
+  const focusReview = (filter: ReviewFilter) => {
+    setReviewFilter(filter);
+    setTimeout(() => document.getElementById("answer-review")?.scrollIntoView({ behavior: "smooth" }), 50);
+  };
+
+  const REVIEW_TABS: { key: ReviewFilter; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "correct", label: "Correct" },
+    { key: "wrong", label: "Wrong" },
+    { key: "unanswered", label: "Unanswered" },
+    { key: "weak", label: "Weak topics" },
+  ];
 
   useEffect(() => {
     if (session.answers.length === 0) return;
@@ -276,19 +308,29 @@ const Result = () => {
             <div className="grid gap-3 md:grid-cols-2">
               {topicBreakdown.map((t) => {
                 const link = getRemediationLink(skillName, t.topic);
+                const mastery = masteryLabel(t.pct);
+                const tone = mastery === "Strong"
+                  ? "bg-success/15 text-success"
+                  : mastery === "Moderate" ? "bg-warning/15 text-warning" : "bg-destructive/15 text-destructive";
                 return (
-                  <div key={t.topic} className="ide-card p-4">
+                  <div key={t.topic} className={`ide-card p-4 ${mastery === "Weak" ? "border-destructive/40 bg-destructive/5" : ""}`}>
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold">{t.topic}</div>
                         <div className="text-xs text-muted-foreground">{t.description}</div>
                       </div>
-                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${t.pct === 100 ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>
-                        {t.pct === 100 ? "Solid" : "Revise"}
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${tone}`}>
+                        {mastery}
                       </span>
                     </div>
-                    <div className="mb-2 text-sm text-muted-foreground">
-                      {t.correct} / {t.total} correct
+                    <div className="mb-1 text-sm text-muted-foreground">
+                      {t.correct} / {t.total} correct · {t.pct}%
+                    </div>
+                    <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-full ${mastery === "Strong" ? "bg-success" : mastery === "Moderate" ? "bg-warning" : "bg-destructive"}`}
+                        style={{ width: `${Math.max(t.pct, 3)}%` }}
+                      />
                     </div>
                     {link && (
                       <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
@@ -368,10 +410,28 @@ const Result = () => {
           )}
         </div>
 
-        <div className="panel p-6">
+        <div className="panel p-6" id="answer-review">
           <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Answer review</h3>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {REVIEW_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setReviewFilter(tab.key)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  reviewFilter === tab.key
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-muted/40"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {filteredAnswers.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No questions match this filter.</p>
+          ) : (
           <div className="space-y-2">
-            {session.answers.map((a) => {
+            {filteredAnswers.map((a) => {
               const open = openAnswer === a.qid;
               const question = questionById.get(a.qid);
               if (!question) return null;
@@ -436,6 +496,7 @@ const Result = () => {
               );
             })}
           </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -455,6 +516,18 @@ const Result = () => {
             className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-muted/40"
           >
             <RotateCcw className="h-4 w-4" /> Retake quiz
+          </button>
+          <button
+            onClick={() => focusReview("wrong")}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-muted/40"
+          >
+            <X className="h-4 w-4 text-destructive" /> Review wrong answers
+          </button>
+          <button
+            onClick={() => focusReview("weak")}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-muted/40"
+          >
+            <Target className="h-4 w-4 text-primary" /> Focus weak areas
           </button>
           {hasAccess && (
             <Link to="/admin" className="rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-muted/40">

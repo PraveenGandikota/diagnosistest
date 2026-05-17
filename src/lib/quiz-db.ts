@@ -210,10 +210,13 @@ export async function fetchSkillById(id: string): Promise<Skill | null> {
   return (data as Skill) || null;
 }
 
-/** Super-admin updates the per-skill exam config (unlock code, duration, attempts). */
+/**
+ * Super-admin updates the per-skill default duration / attempts.
+ * Unlock codes are no longer stored on skills — they live in exam_sessions.
+ */
 export async function updateSkillExamConfig(
   skillId: string,
-  cfg: { exam_access_code: string | null; exam_duration_min: number; max_attempts: number },
+  cfg: { exam_duration_min: number; max_attempts: number },
 ) {
   return supabase.from("skills").update(cfg as any).eq("id", skillId);
 }

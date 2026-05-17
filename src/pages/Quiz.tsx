@@ -6,13 +6,13 @@ import {
 import { toast } from "sonner";
 import { PyHighlight } from "@/components/PyHighlight";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { countAttempts, fetchQuestionsForQuiz, fetchSkillById, validateExamSessionCode, type Skill } from "@/lib/quiz-db";
+import { countAttempts, fetchQuestionsForQuiz, fetchSkillById, validateExamSessionCode, type ExamSession, type Skill } from "@/lib/quiz-db";
 import { useQuiz } from "@/lib/quiz-store";
 import { useStudentSession } from "@/lib/student-session";
 import type { Question } from "@/lib/quiz-types";
 import { formatCodeBlock, hasRenderableCode } from "@/lib/code-format";
 import {
-  enterFullscreen, exitFullscreen, formatElapsed, useCountdown, useElapsed, useFullscreenGuard, useTabSwitchGuard,
+  enterFullscreen, exitFullscreen, useCountdown, useElapsed, useFullscreenGuard, useTabSwitchGuard,
 } from "@/lib/exam-hooks";
 
 const MAX_VIOLATIONS = 3;
@@ -39,8 +39,8 @@ const Quiz = () => {
   const [loading, setLoading] = useState(false);
   const [unlockInput, setUnlockInput] = useState("");
   const [validating, setValidating] = useState(false);
-  // Effective duration/attempts once an exam-session code is accepted (overrides the skill defaults).
-  const [sessionOverride, setSessionOverride] = useState<{ durationSec: number; maxAttempts: number } | null>(null);
+  // The exam session unlocked by a valid code — its duration/attempts govern the exam.
+  const [validatedSession, setValidatedSession] = useState<ExamSession | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [violationModal, setViolationModal] = useState<{ count: number; kind: ViolationKind } | null>(null);
@@ -48,11 +48,10 @@ const Quiz = () => {
   // Prevents one incident (an Esc-then-tab burst) from counting multiple times.
   const violationLock = useRef(false);
 
-  const durationSec = sessionOverride?.durationSec ?? (skill?.exam_duration_min ?? 0) * 60;
+  const durationSec = validatedSession?.duration_sec ?? 0;
   const hasTimer = durationSec > 0;
-  const maxAttempts = sessionOverride?.maxAttempts ?? (skill?.max_attempts ?? 1);
+  const maxAttempts = validatedSession?.max_attempts ?? (skill?.max_attempts ?? 1);
   const attemptsExhausted = attemptsUsed >= maxAttempts;
-  const unlockRequired = !!(skill?.exam_access_code && skill.exam_access_code.trim());
 
   const elapsed = useElapsed(session.startTime, phase === "running");
 
@@ -61,7 +60,7 @@ const Quiz = () => {
     reset();
     setPhase("intro");
     setUnlockInput("");
-    setSessionOverride(null);
+    setValidatedSession(null);
     if (skillId && levelId) {
       setLoading(true);
       Promise.all([
@@ -115,14 +114,32 @@ const Quiz = () => {
     violationLock.current = false;
   };
 
-  // Starts the exam with an effective duration / attempt limit.
-  const beginExam = (effectiveDurationSec: number, effectiveMaxAttempts: number) => {
-    if (!studentSession) return;
-    if (attemptsUsed >= effectiveMaxAttempts) {
-      toast.error(`You have used all ${effectiveMaxAttempts} attempt${effectiveMaxAttempts === 1 ? "" : "s"} for this quiz.`);
+  // Step 1: validate the exam session code. An exam cannot start without one.
+  const handleValidateCode = async () => {
+    if (!studentSession || validating) return;
+    const typed = unlockInput.trim();
+    if (!typed) { toast.error("Enter the exam session code to continue."); return; }
+    setValidating(true);
+    const res = await validateExamSessionCode({
+      code: typed,
+      campusId: studentSession.campus.id,
+      skillId, levelId, quizNumber,
+    });
+    setValidating(false);
+    if (!res.valid || !res.session) {
+      toast.error(res.message);
       return;
     }
-    setSessionOverride({ durationSec: effectiveDurationSec, maxAttempts: effectiveMaxAttempts });
+    setValidatedSession(res.session);
+  };
+
+  // Step 2: begin the exam using the validated session's duration / attempts.
+  const handleStartExam = () => {
+    if (!studentSession || !validatedSession || bank.length === 0) return;
+    if (attemptsUsed >= validatedSession.max_attempts) {
+      toast.error(`You have used all ${validatedSession.max_attempts} attempt${validatedSession.max_attempts === 1 ? "" : "s"} for this quiz.`);
+      return;
+    }
     setStudent(studentSession.student.name);
     startQuiz(bank, {
       quizName: `Quiz ${quizNumber}`,
@@ -133,43 +150,6 @@ const Quiz = () => {
     });
     setPhase("running");
     enterFullscreen();
-  };
-
-  const handleStart = async () => {
-    if (bank.length === 0 || !studentSession || attemptsExhausted || validating) return;
-    const typed = unlockInput.trim();
-    const skillDurationSec = (skill?.exam_duration_min ?? 0) * 60;
-    const skillMaxAttempts = skill?.max_attempts ?? 1;
-
-    if (typed) {
-      // Exam-session codes are the primary system.
-      setValidating(true);
-      const res = await validateExamSessionCode({
-        code: typed,
-        campusId: studentSession.campus.id,
-        skillId, levelId, quizNumber,
-      });
-      setValidating(false);
-      if (res.valid && res.session) {
-        beginExam(res.session.duration_sec, res.session.max_attempts);
-        return;
-      }
-      // Compatibility fallback: the legacy per-skill unlock code.
-      const legacy = (skill?.exam_access_code ?? "").trim();
-      if (legacy && typed.toUpperCase() === legacy.toUpperCase()) {
-        beginExam(skillDurationSec, skillMaxAttempts);
-        return;
-      }
-      toast.error(res.message);
-      return;
-    }
-
-    // No code entered.
-    if (unlockRequired) {
-      toast.error("Enter the exam session code to start.");
-      return;
-    }
-    beginExam(skillDurationSec, skillMaxAttempts);
   };
 
   // ---------- Intro ----------
@@ -221,12 +201,20 @@ const Quiz = () => {
               </p>
 
               <div className="mb-4 flex flex-wrap gap-2 text-[11px]">
-                <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 font-medium">
-                  {hasTimer ? `${skill?.exam_duration_min} min` : "Untimed"}
-                </span>
-                <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 font-medium">
-                  {maxAttempts} attempt{maxAttempts === 1 ? "" : "s"}
-                </span>
+                {validatedSession ? (
+                  <>
+                    <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 font-medium">
+                      {Math.round(validatedSession.duration_sec / 60)} minutes
+                    </span>
+                    <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 font-medium">
+                      {validatedSession.max_attempts} attempt{validatedSession.max_attempts === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 font-medium text-warning">
+                    Code required
+                  </span>
+                )}
                 <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 font-medium">Fullscreen proctored</span>
               </div>
 
@@ -239,29 +227,44 @@ const Quiz = () => {
 
               <label className="mb-2 block">
                 <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                  <KeyRound className="h-3.5 w-3.5" /> Exam session code{unlockRequired ? "" : " (optional)"}
+                  <KeyRound className="h-3.5 w-3.5" /> Exam session code
                 </span>
                 <input
                   value={unlockInput}
                   onChange={(e) => setUnlockInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleStart(); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { validatedSession ? handleStartExam() : handleValidateCode(); } }}
+                  disabled={!!validatedSession}
                   placeholder="Code announced by your invigilator"
-                  className="w-full rounded-md border border-border bg-card px-3 py-2.5 text-sm uppercase outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-md border border-border bg-card px-3 py-2.5 text-sm uppercase outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
                 />
               </label>
-              <p className="mb-5 text-[11px] text-muted-foreground">
-                {unlockRequired
-                  ? "This exam requires the code announced by your invigilator."
-                  : "Enter the session code if your invigilator gave you one."}
-              </p>
 
-              <button
-                onClick={handleStart}
-                disabled={validating || (unlockRequired && unlockInput.trim() === "")}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                <Play className="h-4 w-4" /> {validating ? "Checking code…" : "Start exam"}
-              </button>
+              {validatedSession ? (
+                <p className="mb-5 text-[11px] font-medium text-success">
+                  Code accepted — {Math.round(validatedSession.duration_sec / 60)} minute exam. You can start now.
+                </p>
+              ) : (
+                <p className="mb-5 text-[11px] text-muted-foreground">
+                  Enter the exam session code announced by your invigilator to continue.
+                </p>
+              )}
+
+              {validatedSession ? (
+                <button
+                  onClick={handleStartExam}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <Play className="h-4 w-4" /> Start exam
+                </button>
+              ) : (
+                <button
+                  onClick={handleValidateCode}
+                  disabled={validating || unlockInput.trim() === ""}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  <KeyRound className="h-4 w-4" /> {validating ? "Checking code…" : "Validate code"}
+                </button>
+              )}
               <button onClick={() => navigate(-1)} className="mt-4 block w-full text-center text-xs text-muted-foreground hover:text-foreground">
                 Back to skill page
               </button>
@@ -282,11 +285,9 @@ const Quiz = () => {
   const answeredCount = session.selections.filter((s) => s !== null).length;
   const notAnswered = total - answeredCount;
   const isLast = session.currentIdx === total - 1;
-  const allAnswered = answeredCount === total;
-  const canSubmit = isLast || allAnswered;
 
-  const timeText = hasTimer ? formatElapsed(remaining) : formatElapsed(elapsed);
-  const timeLabel = hasTimer ? "Time remaining" : "Time elapsed";
+  const timeText = hasTimer ? formatClock(remaining) : formatClock(elapsed);
+  const timeLabel = hasTimer ? "Time left" : "Time elapsed";
   const timeDanger = hasTimer && remaining <= 60;
 
   const palette = (
@@ -302,7 +303,6 @@ const Quiz = () => {
       currentIdx={session.currentIdx}
       selections={session.selections}
       visited={session.visited}
-      canSubmit={canSubmit}
       onJump={(i) => { goToQuestion(i); setPaletteOpen(false); }}
       onSubmit={() => { setPaletteOpen(false); setConfirmSubmit(true); }}
     />
@@ -402,18 +402,18 @@ const Quiz = () => {
         </div>
       </div>
 
-      {/* Desktop palette */}
+      {/* Desktop palette — fixed viewport height; only the grid inside scrolls. */}
       <aside className="hidden w-72 flex-shrink-0 border-l border-border bg-card lg:block">
-        <div className="sticky top-0 max-h-screen overflow-y-auto">{palette}</div>
+        <div className="sticky top-0 h-screen">{palette}</div>
       </aside>
 
       {/* Mobile palette drawer */}
       <Sheet open={paletteOpen} onOpenChange={setPaletteOpen}>
-        <SheetContent side="right" className="w-80 p-0">
+        <SheetContent side="right" className="flex w-80 flex-col p-0">
           <SheetHeader className="border-b border-border px-4 py-3">
             <SheetTitle>Question palette</SheetTitle>
           </SheetHeader>
-          <div className="overflow-y-auto">{palette}</div>
+          <div className="min-h-0 flex-1">{palette}</div>
         </SheetContent>
       </Sheet>
 
@@ -425,7 +425,9 @@ const Quiz = () => {
           </div>
           <h3 className="mb-1 text-lg font-semibold">Submit the exam?</h3>
           <p className="mb-1 text-sm text-muted-foreground">
-            Are you sure you want to submit the exam? You won't be able to change your answers afterwards.
+            {notAnswered > 0
+              ? "You have unanswered questions. Are you sure you want to submit?"
+              : "Are you sure you want to submit the exam?"}
           </p>
           <p className="mb-5 text-sm text-muted-foreground">
             Answered <span className="font-semibold text-foreground">{answeredCount}</span> of {total}.
@@ -502,14 +504,13 @@ interface PaletteProps {
   currentIdx: number;
   selections: (number | null)[];
   visited: boolean[];
-  canSubmit: boolean;
   onJump: (idx: number) => void;
   onSubmit: () => void;
 }
 
 const PalettePanel = ({
   timeText, timeLabel, timeDanger, skillName, quizNumber, total, answeredCount, notAnswered,
-  currentIdx, selections, visited, canSubmit, onJump, onSubmit,
+  currentIdx, selections, visited, onJump, onSubmit,
 }: PaletteProps) => (
   <div className="flex h-full flex-col">
     <div className="border-b border-border p-4">
@@ -527,7 +528,7 @@ const PalettePanel = ({
       <Tally label="Not answered" value={notAnswered} tone="warning" />
     </div>
 
-    <div className="flex-1 p-4">
+    <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Questions</div>
       <div className="grid grid-cols-5 gap-2">
         {Array.from({ length: total }, (_, i) => {
@@ -561,16 +562,13 @@ const PalettePanel = ({
     <div className="border-t border-border p-4">
       <button
         onClick={onSubmit}
-        disabled={!canSubmit}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-success px-4 py-2.5 text-sm font-semibold text-success-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-success px-4 py-2.5 text-sm font-semibold text-success-foreground transition-opacity hover:opacity-90"
       >
         <Send className="h-4 w-4" /> Submit exam
       </button>
-      {!canSubmit && (
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          Available on the last question or once every question is answered.
-        </p>
-      )}
+      <p className="mt-2 text-center text-[11px] text-muted-foreground">
+        You can submit from here at any time.
+      </p>
     </div>
   </div>
 );
@@ -634,6 +632,12 @@ function renderInlineCode(text: string) {
 
 function isCodeLike(s: string) {
   return /[(){}\[\];=]|->|:=/.test(s);
+}
+
+// Countdown clock as mm:ss.
+function formatClock(totalSec: number): string {
+  const s = Math.max(0, Math.floor(totalSec));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
 export default Quiz;
