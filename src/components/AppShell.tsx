@@ -84,45 +84,49 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
-  // During an active exam, render a focused shell with no sidebar / nav chrome.
-  if (examActive) {
-    return <main className="min-h-screen w-full bg-background text-foreground anim-slide-in">{children}</main>;
-  }
-
+  // NOTE: nav chrome is toggled with conditional siblings — never an early
+  // return with a different root — so `children` (e.g. the running Quiz) is
+  // never unmounted when an exam starts/ends.
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
-      {/* Desktop sticky sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 flex-shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
-        <NavContent theme={theme} onToggleTheme={toggleTheme} onNavigate={() => {}} />
-      </aside>
+      {/* Desktop sticky sidebar — hidden during an active exam */}
+      {!examActive && (
+        <aside className="sticky top-0 hidden h-screen w-60 flex-shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
+          <NavContent theme={theme} onToggleTheme={toggleTheme} onNavigate={() => {}} />
+        </aside>
+      )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile sticky top bar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background px-4 py-3 md:hidden">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <GraduationCap className="h-5 w-5" />
+        {/* Mobile sticky top bar — hidden during an active exam */}
+        {!examActive && (
+          <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background px-4 py-3 md:hidden">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <GraduationCap className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-semibold">Diagnostic</span>
             </div>
-            <span className="text-sm font-semibold">Diagnostic</span>
-          </div>
-          <button
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open navigation menu"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border hover:bg-muted/60"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-        </header>
+            <button
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open navigation menu"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-border hover:bg-muted/60"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          </header>
+        )}
 
         <main key={location.pathname} className="min-w-0 flex-1 anim-slide-in">{children}</main>
       </div>
 
-      {/* Mobile drawer */}
-      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <SheetContent side="left" className="w-64 p-0">
-          <NavContent theme={theme} onToggleTheme={toggleTheme} onNavigate={() => setDrawerOpen(false)} />
-        </SheetContent>
-      </Sheet>
+      {/* Mobile drawer — hidden during an active exam */}
+      {!examActive && (
+        <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+          <SheetContent side="left" className="w-64 p-0">
+            <NavContent theme={theme} onToggleTheme={toggleTheme} onNavigate={() => setDrawerOpen(false)} />
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   );
 };
